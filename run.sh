@@ -4,11 +4,20 @@
 #
 #   ./run.sh test                    unit + smoke, no GPU, seconds
 #   ./run.sh stub    r0              whole slice on the canned model, no GPU
+#   ./run.sh pilot   r0              REAL model, 2 prompts, ~3 min — run before renting a night
 #   ./run.sh pairs   r0              generate answer pairs      (needs a model)
 #   ./run.sh judge   r0              judge them                 (needs a model)
 #   ./run.sh validate r0             audit the judge — THE GATE
 #   ./run.sh peek    r0              read a run, safe mid-experiment
+#   ./run.sh label   r0              hand-label pairs, blind to the judge
+#   ./run.sh night   r0              full sweep under nohup, pushes to the Hub
+#
+# Recommended first-time order (label BEFORE judging — see README):
+#   ./run.sh pilot p0 ; ./run.sh pairs r0 --push ; ./run.sh label r0 ; ./run.sh judge r0
 #   ./run.sh all     r0              pairs -> judge -> validate, stopping on failure
+#   ./run.sh push    r0              mirror runs/r0 to the logs dataset repo
+#   ./run.sh pull    r0              fetch runs/r0 back from the Hub
+#   ./run.sh whoami                  check HF_TOKEN works, before renting a box
 #
 # Env: MODEL / ADAPTER override configs/model.json. PY overrides the interpreter.
 set -euo pipefail
@@ -36,9 +45,28 @@ case "$CMD" in
     $PY -m src.cli peek --run "$RUN"
     ;;
 
-  pairs|judge|validate|peek)
+  pilot|label|pairs|judge|validate|peek)
     need_run
     $PY -m src.cli "$CMD" --run "$RUN" "$@"
+    ;;
+
+  push)   need_run; $PY -m src.cli sync push-run --run "$RUN" "$@" ;;
+  pull)   need_run; $PY -m src.cli sync pull-run --run "$RUN" "$@" ;;
+  whoami) $PY -m src.cli sync whoami --run _ ;;
+
+  night)
+    need_run
+    # Detached, unbuffered, pushing on each stage's success path. nohup because
+    # an ssh drop must not kill a paid-for run; PYTHONUNBUFFERED because python
+    # block-buffers stdout when it is a file, so `tail -f` would show nothing
+    # for hours. tmux belongs on the BOX, not on your laptop.
+    export PYTHONUNBUFFERED=1
+    nohup bash -c "\
+      $PY -m src.cli pairs    --run '$RUN' --push && \
+      $PY -m src.cli judge    --run '$RUN' --push && \
+      $PY -m src.cli validate --run '$RUN' --push" > "$RUN.log" 2>&1 &
+    echo "started pid $! -> $RUN.log"
+    echo "watch with:  tail -f $RUN.log"
     ;;
 
   all)

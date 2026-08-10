@@ -30,19 +30,97 @@ judge always picks whichever answer is shown first, one where it emits no
 parseable verdict, one where it skips the self-check step — and you should see
 the harness catch each of them and the validation gate refuse to pass.
 
-## The real loop
+## Renting a box: the overnight sequence
+
+```bash
+# 1. on your laptop, before paying for anything          ~1 second
+./run.sh test
+
+# 2. on the box, before committing to the night          ~3 minutes
+./run.sh whoami                 # token resolves
+./run.sh pilot p0               # REAL model, 2 prompts, end to end
+
+# 3. the run itself
+tmux new -s mo                  # tmux on the BOX, not your laptop
+./run.sh night r0
+tail -f r0.log
+```
+
+`pilot` is the step that saves the night. `./run.sh test` proves the plumbing
+with a canned model; it cannot tell you whether the real model fits in VRAM,
+whether it emits a parseable verdict block, or how long a pair takes — the
+three things that actually waste a rented night. `pilot` measures all three and
+prints an extrapolation:
+
+```
+  answer generation     18.4 s/pair
+  judging               71.2 s/pair  (3 samples x 2 orders)
+  TOTAL                 89.6 s/pair
+
+  full domain (25 prompts): 37 min = $0.47 at $0.75/hr
+  unparseable 0/12   missing self-check 0/12
+```
+
+It **exits 1** and tells you not to start if more than 5% of completions are
+unparseable, if more than 20% skipped the self-check step (almost always
+`max_new_tokens` truncating before STEP 4), or if a system prompt is being
+injected. Better to learn that in minute three than at 7am.
+
+`night` runs the sweep under `nohup` with unbuffered stdout, pushing to the Hub
+on each stage's success path, so a dropped ssh session doesn't kill it and
+`tail -f` actually shows progress.
+
+## Labelling, fast
+
+```bash
+./run.sh label r0                    # blind: judge's verdict hidden
+./run.sh label r0 --boundary-only    # just the hard ones
+```
+
+Shows the request and both answers, takes `a` / `b` / `t`(ie) / `s`(kip) /
+`q`(uit), then one optional line of reasoning and the deciding criterion.
+Writes after every label, so stopping and resuming is safe, and it never asks
+twice about a pair you have already done.
+
+Blind by default on purpose: seeing the judge's verdict first anchors you to
+it, and the entire value of these labels is being an independent check. Use
+`--show-judge` only when you are deliberately auditing a disagreement.
+
+Until `docs/human_label/labels.json` has content, `clear_agreement` — the one
+check asking whether the judge is *right* about the cases it called easy —
+cannot be computed, and the report says so rather than passing quietly.
+
+## Stage by stage
 
 ```bash
 ./run.sh pairs    r0    # two samples of the model per prompt = the pairs to judge
 ./run.sh judge    r0    # k judgments per pair, in BOTH presentation orders
 ./run.sh validate r0    # audit the judge against your labels — this is a gate
-./run.sh peek     r0    # read the run
+./run.sh peek     r0    # read the run, safe mid-experiment
 ```
 
-Then fill in `docs/human_label/labels.json` — your own verdicts on ~100 pairs —
-and run `validate` again. Until that file has content, `clear_agreement` (the
-one check that asks whether the judge is *right* about the cases it called easy)
-cannot be computed, and the report says so rather than passing quietly.
+## Hugging Face
+
+Repo ids live in `configs/hub.json` and nowhere else:
+logs → `tewoto/Remote_logging_RL` (dataset, at `runs/<experiment>/`),
+adapters → `tewoto/LoRA_Adapters` (model, at `<experiment>/`).
+
+```bash
+./run.sh whoami              # check the token before renting a box
+./run.sh push r0             # mirror runs/r0 to the dataset repo
+./run.sh pull r0             # fetch it back on another machine
+./run.sh judge r0 --push     # push automatically, on success only
+python -m src.cli sync push-adapter --run exp_v1 --path checkpoints/exp_v1
+```
+
+The token is `HF_TOKEN`, found by walking **up** from the repo root for a
+`.env` — so it can live in `AI Experiments/.env`, outside the git tree
+entirely. A token already in the environment always beats the file, which is
+how a rented box injects one with no file at all.
+
+Adapters are referenced as `"adapter_path": "hf:exp_v1"` in
+`configs/model.json`; that resolves to subfolder `exp_v1` of the adapters repo
+and loads straight from the Hub with no manual download.
 
 ## Design commitments
 
@@ -74,15 +152,18 @@ gates. Producing data from a broken instrument is worse than producing none.
 ## Layout
 
 ```
-configs/       design: model, judge thresholds, prompt domains
+configs/       design: model, judge thresholds, hub repos, prompt domains
 prompts/judge/ the judging protocol and the seed rubric (the constitution v0)
-src/common/    config loading, chat templating, run directories
+src/common/    config loading, chat templating, run directories, hub sync
 src/judge/     the harness: prompt building, parsing, aggregation, validation
 src/cli.py     one entrypoint; every stage is a subcommand
 tests/         unit (pure logic) + smoke (whole slice on the stub)
-docs/          plan, prior-project state, and your human labels
+docs/          MECHANICS.md, PLAN.md, and your human labels
 runs/          outputs, gitignored
 ```
+
+`docs/MECHANICS.md` is the file-by-file, choice-by-choice account: what reads
+what, the exact record shapes, and why each mechanism is the way it is.
 
 Rule: code in `src/`, design in `configs/`, prompt text in `prompts/`, outputs
 in `runs/`. Nothing straddles. Adding a domain or a rubric version means adding

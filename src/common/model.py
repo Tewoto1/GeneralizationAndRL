@@ -113,6 +113,12 @@ def load_with_adapter(name: str, adapter_path: str, dtype: str = "bfloat16",
 
     Used to run a trained organism checkpoint.
 
+    `adapter_path` may be a local directory OR a Hub reference `hf:<experiment>`,
+    resolved by `hub.adapter_ref` to (repo_id, subfolder) against the adapter
+    repo named in configs/hub.json. PeftModel.from_pretrained takes the repo id
+    and `subfolder=` directly, so a remote adapter needs no manual download and
+    the config key looks the same either way.
+
     `merge=True` folds the adapter into the base weights via
     `merge_and_unload()` and returns a plain model instead of a `PeftModel`:
     inference skips the LoRA A/B matmuls, at the cost of no longer being able
@@ -124,8 +130,14 @@ def load_with_adapter(name: str, adapter_path: str, dtype: str = "bfloat16",
             "merge=True requires load_in_4bit=False; merging LoRA weights "
             "into a 4-bit quantized base is not supported."
         )
-    base = load_base_model(name, dtype = dtype, load_in_4bit = load_in_4bit)
-    model = PeftModel.from_pretrained(base, adapter_path)
+    from .hub import adapter_ref, token
+    ref, subfolder = adapter_ref(adapter_path)
+
+    base = load_base_model(name, dtype=dtype, load_in_4bit=load_in_4bit)
+    kwargs = {}
+    if subfolder:                       # remote: private repo needs the token
+        kwargs = {"subfolder": subfolder, "token": token()}
+    model = PeftModel.from_pretrained(base, ref, **kwargs)
     if merge:
         model = model.merge_and_unload()
     return model.eval()

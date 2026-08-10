@@ -9,7 +9,7 @@ for a whole run; a test at this level would have caught it the same afternoon.
 import pytest
 
 from src.judge.judge import PairResult, judge_pair
-from src.judge.validate import report
+from src.judge.validate import preflight, report
 
 PROTO = {"version": "t", "template": ["{{prompt}}|{{answer_a}}|{{answer_b}}|{{criteria}}|{{label_a}}{{label_b}}"],
          "criterion_line": "- {{id}}: {{question}}"}
@@ -154,3 +154,45 @@ def test_margin_calibration_is_reported():
     rep = report(pairs, [{"ok": True, "steps_present": [4]}], labels, GATES)
     assert rep["margin_calibration"]
     assert sum(b["n"] for b in rep["margin_calibration"].values()) == 2
+
+
+# --------------------------------------------------------------- preflight ---
+# The cheap half of validation: needs no human labels, answers "is the
+# instrument functioning at all". This is what gates a rented overnight run.
+
+_CLEAN = {"chat": {"system_policy": "none"}}
+
+
+def _js(n, ok=True, steps=(1, 2, 3, 4, 5)):
+    return [{"ok": ok, "steps_present": list(steps)} for _ in range(n)]
+
+
+def test_preflight_passes_a_healthy_pilot():
+    assert preflight([{"pair_id": "d01"}], _js(6), _CLEAN)["ok"]
+
+
+def test_preflight_blocks_on_unparseable_output():
+    """>5% unparseable means the parser and the model disagree about format —
+    the exact failure that cost a previous project a 150-rollout sweep."""
+    pre = preflight([{"pair_id": "d01"}], _js(3) + _js(3, ok=False), _CLEAN)
+    assert not pre["ok"] and "unparseable" in pre["problems"][0]
+
+
+def test_preflight_blocks_on_skipped_selfcheck_and_blames_the_token_budget():
+    """Step 4 missing is nearly always truncation, so the message must say so —
+    a pilot that reports a symptom without the likely cause wastes the night
+    it was supposed to save."""
+    pre = preflight([{"pair_id": "d01"}], _js(6, steps=(1, 2, 3)), _CLEAN,
+                    max_new_tokens=900)
+    assert not pre["ok"] and "max_new_tokens (900)" in pre["problems"][0]
+
+
+def test_preflight_blocks_on_an_injected_system_prompt():
+    """A persona in context contaminates every judgment, silently."""
+    pre = preflight([{"pair_id": "d01"}], _js(6),
+                    {"chat": {"system_policy": "template_default"}})
+    assert not pre["ok"] and "system_policy" in pre["problems"][0]
+
+
+def test_preflight_blocks_when_nothing_was_judged():
+    assert not preflight([], [], _CLEAN)["ok"]

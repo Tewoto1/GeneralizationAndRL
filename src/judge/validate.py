@@ -51,6 +51,61 @@ def _corr(xs: list[float], ys: list[float]) -> float:
     return num / (dx * dy) if dx and dy else 0.0
 
 
+def preflight(results: list[dict], judgments: list[dict], provenance: dict,
+              max_new_tokens: int | None = None) -> dict:
+    """The cheap half of validation: is the instrument even functioning?
+
+    Separate from `report` because it needs no human labels and no statistics —
+    just "did the model emit parseable verdicts, did it do the steps, and is
+    the prompt clean". These are the three ways a rented overnight run comes
+    back worthless, and all three are visible after two pairs.
+
+    Returns `{"ok": bool, "problems": [str], ...}`. Pure function; `cmd_pilot`
+    prints it and exits non-zero on `not ok`.
+    """
+    n = len(judgments) or 1
+    unparseable = sum(1 for j in judgments if not j.get("ok"))
+    no_selfcheck = sum(1 for j in judgments if 4 not in (j.get("steps_present") or []))
+    policy = (provenance.get("chat") or {}).get("system_policy")
+
+    problems = []
+    if unparseable > n * 0.05:
+        problems.append(
+            f"{unparseable}/{n} completions unparseable — read the raw text in "
+            f"judgments.jsonl before spending a night on this")
+    if no_selfcheck > n * 0.2:
+        problems.append(
+            f"{no_selfcheck}/{n} judgments skipped the self-check step"
+            + (f" — most likely max_new_tokens ({max_new_tokens}) truncating "
+               f"before STEP 4" if max_new_tokens else ""))
+    if policy != "none":
+        problems.append(
+            f"system_policy is {policy!r}, not 'none' — a persona in context "
+            f"contaminates every judgment")
+    if not results:
+        problems.append("no pairs were judged at all")
+
+    return {"ok": not problems, "problems": problems,
+            "n_judgments": len(judgments), "unparseable": unparseable,
+            "no_selfcheck": no_selfcheck, "system_policy": policy}
+
+
+def add_label(path: str | Path, entry: dict) -> int:
+    """Append one human label and write immediately. Returns the new total.
+
+    Written after every single label rather than at the end, so quitting
+    halfway (or a dropped ssh session) costs nothing. `cmd_label` skips
+    pair_ids already present, which makes the whole thing resumable.
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = ROOT / p
+    data = json.loads(p.read_text()) if p.exists() else {"labels": []}
+    data.setdefault("labels", []).append(entry)
+    p.write_text(json.dumps(data, indent=2))
+    return len(data["labels"])
+
+
 def load_labels(path: str | Path) -> dict[str, dict]:
     """Human labels keyed by pair_id. Entries with verdict null are skipped."""
     p = Path(path)

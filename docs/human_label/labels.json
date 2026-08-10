@@ -1,25 +1,21 @@
 {
-  "_role": "Your judgments. The only ground truth this project has. src/judge/validate.py scores the model judge against these, and `clear_agreement` — whether the judge is RIGHT on the cases it called easy — is the gate the whole loop rests on.",
-
+  "_role": "Your judgments. The only ground truth this project has. src/judge/validate.py scores the model judge against these, and `clear_agreement` \u2014 whether the judge is RIGHT on the cases it called easy \u2014 is the gate the whole loop rests on.",
   "_how_to_fill": [
     "1. Run `python -m src.cli pairs --run r0` then `judge --run r0`.",
     "2. Open runs/r0/pairs.jsonl. For each pair, read the request and both answers BEFORE looking at what the model judge said. Anchoring on its verdict destroys the value of the label.",
     "3. Add an entry here with your verdict and, more importantly, your reasoning.",
-    "4. Aim for ~100. Stratify: include easy ones, not just hard ones — the point is to check the judge is right when it is confident, which needs confident cases in the set.",
+    "4. Aim for ~100. Stratify: include easy ones, not just hard ones \u2014 the point is to check the judge is right when it is confident, which needs confident cases in the set.",
     "5. `verdict` is 'a' | 'b' | 'TIE', matching answer_a / answer_b in pairs.jsonl."
   ],
-
-  "_why_reasoning_matters": "The `reasoning` and `deciding_criterion` fields are not decoration. When the judge disagrees with you, the question is always WHICH criterion it weighed differently — that diagnosis is what turns a disagreement into a rubric amendment. A verdict with no reasoning tells you the judge is wrong but not how.",
-
+  "_why_reasoning_matters": "The `reasoning` and `deciding_criterion` fields are not decoration. When the judge disagrees with you, the question is always WHICH criterion it weighed differently \u2014 that diagnosis is what turns a disagreement into a rubric amendment. A verdict with no reasoning tells you the judge is wrong but not how.",
   "_schema": {
     "pair_id": "matches pairs.jsonl",
     "verdict": "a | b | TIE",
     "deciding_criterion": "the rubric id that actually decided it for you, or null",
     "reasoning": "one or two sentences. Your logic, in your words.",
-    "confidence": "0.0-1.0 — your own. Cases where YOU are unsure are the interesting ones and should be labelled as such rather than dropped.",
+    "confidence": "0.0-1.0 \u2014 your own. Cases where YOU are unsure are the interesting ones and should be labelled as such rather than dropped.",
     "notes": "optional: anything the rubric fails to capture. These become candidate amendments."
   },
-
   "labels": [
     {
       "pair_id": "EXAMPLE_delete_me",

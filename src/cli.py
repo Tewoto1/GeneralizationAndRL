@@ -41,9 +41,7 @@ def _load_all(domain: str | None = None) -> dict:
 
 def _generator(cfg: dict, stub: bool):
     if stub:
-        sys.path.insert(0, str(cfg_mod.ROOT))
-        from tests.fixtures.stub import stub_generator
-        return stub_generator(), {"model": "STUB", "chat": {"system_policy": "none"}}
+        return J.stub_generator(), {"model": "STUB", "chat": {"system_policy": "none"}}
     return J.hf_generator(cfg["model"])
 
 
@@ -67,8 +65,11 @@ def cmd_pairs(a) -> None:
     generate, prov = _generator(cfg, a.stub)
     run.note(answer_model=prov)
 
+    prompts = cfg["domain"]["prompts"]
+    if getattr(a, "limit", None):
+        prompts = prompts[:a.limit]
     n = 0
-    for p in cfg["domain"]["prompts"]:
+    for p in prompts:
         outs = generate(p["text"], 2)
         if len(outs) < 2:
             print(f"[pairs] {p['id']}: model returned {len(outs)} < 2 samples, skipped")
@@ -80,10 +81,13 @@ def cmd_pairs(a) -> None:
             "len_a": len(outs[0].strip()), "len_b": len(outs[1].strip()),
         })
         n += 1
-        print(f"[pairs] {p['id']} ({n}/{len(cfg['domain']['prompts'])})", flush=True)
+        print(f"[pairs] {p['id']} ({n}/{len(prompts)})", flush=True)
 
     run.mark_complete("pairs", n_pairs=n)
     print(f"[pairs] {n} pairs -> {run.path('pairs')}")
+    if a.push:
+        from .common import hub
+        hub.push_run(a.run, message=f"{a.run}: {n} pairs")
 
 
 def cmd_judge(a) -> None:
@@ -128,6 +132,9 @@ def cmd_judge(a) -> None:
     if n_unparseable:
         print(f"[judge] WARNING {n_unparseable} unparseable completions "
               f"(kept in judgments.jsonl with raw text)")
+    if a.push:
+        from .common import hub
+        hub.push_run(a.run, message=f"{a.run}: judged {len(pairs)} pairs")
 
 
 def cmd_validate(a) -> None:
@@ -158,12 +165,166 @@ def cmd_validate(a) -> None:
                                          ("swap_invariance", "self_consistency",
                                           "clear_agreement") if k in rep})
         print("\n[validate] PASSED — survey may run against this judge.")
+        if a.push:
+            from .common import hub
+            hub.push_run(a.run, message=f"{a.run}: judge validated")
     else:
         (run.dir / "validate.complete").unlink(missing_ok=True)
         print(f"\n[validate] FAILED: {', '.join(rep['failed_gates'])}")
         print("Downstream stages are blocked. Fix the protocol or rubric, "
               "re-judge, and validate again.")
         sys.exit(1)
+
+
+def cmd_pilot(a) -> None:
+    """Real model, first N prompts, end to end. Run BEFORE renting the night.
+
+    `./run.sh test` proves the plumbing with a canned generator. It cannot tell
+    you whether the real model fits in VRAM, emits a parseable verdict block, or
+    how long a pair takes — the three things that actually waste a paid night.
+
+    Runs the ordinary `pairs` and `judge` stages with `--limit`, so there is no
+    second copy of the pipeline to drift out of step with the real one. All it
+    adds is a clock and `judge.validate.preflight`.
+    """
+    import time
+    total = len(_load_all(a.domain)["domain"]["prompts"])
+
+    a.fresh, a.limit, a.push = True, a.n, False
+    t0 = time.time()
+    cmd_pairs(a)
+    t_pairs = (time.time() - t0) / max(a.n, 1)
+    t1 = time.time()
+    cmd_judge(a)
+    t_judge = (time.time() - t1) / max(a.n, 1)
+
+    cfg = _load_all()
+    run = Run.open(a.run)
+    prov = json.loads((run.dir / "manifest.json").read_text()).get("judge_model", {})
+    pre = V.preflight(list(run.read("results")), list(run.read("judgments")), prov,
+                      max_new_tokens=cfg["model"]["gen"]["max_new_tokens"])
+
+    per_pair = t_pairs + t_judge
+    eta_min = per_pair * total / 60
+    print("\n" + "=" * 62)
+    print(f"  answer generation   {t_pairs:6.1f} s/pair")
+    print(f"  judging             {t_judge:6.1f} s/pair  "
+          f"({cfg['judge']['k_samples']} samples x 2 orders)")
+    print(f"  TOTAL               {per_pair:6.1f} s/pair")
+    print(f"\n  full domain ({total} prompts): {eta_min:.0f} min "
+          f"= ${eta_min / 60 * a.rate:.2f} at ${a.rate}/hr")
+    print(f"  unparseable {pre['unparseable']}/{pre['n_judgments']}   "
+          f"missing self-check {pre['no_selfcheck']}/{pre['n_judgments']}   "
+          f"system_policy {pre['system_policy']!r}")
+    print("=" * 62)
+
+    if not pre["ok"]:
+        print("\nDO NOT START THE OVERNIGHT RUN:")
+        for p in pre["problems"]:
+            print(f"  - {p}")
+        sys.exit(1)
+    print("\n[pilot] clean. Safe to start the full run.")
+
+
+def cmd_label(a) -> None:
+    """Label pairs by hand, fast. Blind to the judge's verdict by default.
+
+    Blind matters: seeing the judge's answer first anchors you onto it, and the
+    whole value of these labels is that they are an INDEPENDENT check on whether
+    the judge is right about the cases it called easy.
+
+    Keys: a / b / t(ie) / s(kip) / q(uit). One optional line of reasoning.
+    Appends to docs/human_label/labels.json, and never asks twice about a pair
+    you have already labelled, so it is safe to stop and resume.
+    """
+    cfg = _load_all()
+    run = Run.open(a.run)
+    path = cfg["judge"]["validate"]["labels"]
+    done = set(V.load_labels(path))
+
+    if not run.is_complete("pairs"):
+        sys.exit(f"[label] run '{a.run}' has no completed `pairs` stage. There is "
+                 f"nothing to label until the model has written some answers.")
+
+    pairs = [p for p in run.read("pairs") if p["pair_id"] not in done]
+    results = {r["pair_id"]: r for r in run.read("results")}
+
+    # Labelling BEFORE `judge` is the preferred order: with no verdicts in
+    # existence there is nothing to anchor on, so the labels are blind by
+    # construction rather than by discipline. --boundary-only is the exception,
+    # since "boundary" is a judge output.
+    if a.boundary_only:
+        if not run.is_complete("judge"):
+            sys.exit("[label] --boundary-only needs the `judge` stage; without it "
+                     "no pair has been classified yet. Drop the flag to label "
+                     "everything blind, which is the better order anyway.")
+        pairs = [p for p in pairs if not results[p["pair_id"]]["clear"]]
+    if not pairs:
+        print("[label] nothing left to label.")
+        return
+
+    crit_ids = [c["id"] for c in cfg["rubric"]["criteria"]]
+    print(f"[label] {len(pairs)} unlabelled. criteria: {', '.join(crit_ids)}")
+    print("[label] a/b = better answer, t = tie, s = skip, q = save and quit\n")
+
+    added, total = 0, len(done)
+    for i, p in enumerate(pairs, 1):
+        print("=" * 70)
+        print(f"[{i}/{len(pairs)}]  {p['pair_id']}")
+        print("=" * 70)
+        print(f"\nREQUEST:\n{p['prompt']}\n")
+        print(f"--- ANSWER A ({p['len_a']} chars) ---\n{p['answer_a']}\n")
+        print(f"--- ANSWER B ({p['len_b']} chars) ---\n{p['answer_b']}\n")
+        if a.show_judge and p["pair_id"] in results:
+            r = results[p["pair_id"]]
+            print(f"[judge said: {r['winner']} margin={r['margin']:.2f} "
+                  f"{'clear' if r['clear'] else 'boundary'}]\n")
+
+        v = input("better? [a/b/t/s/q] ").strip().lower()
+        if v == "q":
+            break
+        if v not in ("a", "b", "t"):
+            continue
+        reason = input("why? (one line, optional) ").strip()
+        crit = input(f"deciding criterion? ({'/'.join(crit_ids)}, blank=none) ").strip()
+
+        total = V.add_label(path, {
+            "pair_id": p["pair_id"],
+            "verdict": "TIE" if v == "t" else v,
+            "deciding_criterion": crit if crit in crit_ids else None,
+            "reasoning": reason,
+            "confidence": None,
+            "notes": "",
+        })
+        added += 1
+        print()
+
+    print(f"[label] +{added} labels, {total} total -> {path}")
+    print("[label] re-run `validate` to score the judge against them.")
+
+
+def cmd_sync(a) -> None:
+    """Push or pull a run directory / adapter to the Hub.
+
+    Repo ids come from configs/hub.json; the token is HF_TOKEN, read from a
+    .env found by walking up from the repo root (see src/common/hub.py).
+    """
+    from .common import hub
+
+    if a.what == "whoami":
+        print(json.dumps({k: hub.whoami().get(k) for k in ("name", "fullname", "type")},
+                         indent=2))
+        return
+    if a.what == "push-run":
+        hub.push_run(a.run, message=a.message)
+    elif a.what == "pull-run":
+        hub.pull_run(a.run)
+    elif a.what == "push-adapter":
+        if not a.path:
+            sys.exit("push-adapter needs --path <local adapter dir>")
+        hub.push_adapter(a.run, a.path, message=a.message)
+    elif a.what == "pull-adapter":
+        hub.pull_adapter(a.run)
 
 
 def cmd_peek(a) -> None:
@@ -204,13 +365,34 @@ def main(argv: list[str] | None = None) -> None:
         s.add_argument("--run", required=True)
         s.add_argument("--fresh", action="store_true", help="redo this stage")
         s.add_argument("--stub", action="store_true", help="canned generator, no model")
+        # Push on the success path only. A run that died mid-stage should not
+        # appear on the Hub looking complete.
+        s.add_argument("--push", action="store_true",
+                       help="mirror the run directory to the Hub when the stage succeeds")
         s.set_defaults(fn=fn)
         return s
 
     add("pairs", cmd_pairs).add_argument("--domain", default="honesty_tact")
     add("judge", cmd_judge)
+
+    s = add("pilot", cmd_pilot)
+    s.add_argument("--domain", default="honesty_tact")
+    s.add_argument("-n", type=int, default=2, help="prompts to pilot")
+    s.add_argument("--rate", type=float, default=0.75, help="$/hr, for the estimate")
+
+    s = add("label", cmd_label)
+    s.add_argument("--boundary-only", action="store_true",
+                   help="only pairs the judge called boundary")
+    s.add_argument("--show-judge", action="store_true",
+                   help="reveal the judge's verdict (anchors you — off by default)")
     add("validate", cmd_validate)
     add("peek", cmd_peek).add_argument("-v", "--verbose", action="store_true")
+
+    s = add("sync", cmd_sync)
+    s.add_argument("what", choices=["push-run", "pull-run", "push-adapter",
+                                    "pull-adapter", "whoami"])
+    s.add_argument("--path", help="local adapter dir, for push-adapter")
+    s.add_argument("--message", help="commit message")
 
     a = ap.parse_args(argv)
     a.fn(a)

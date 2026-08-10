@@ -1,0 +1,24 @@
+{
+  "_role": "Hugging Face Hub destinations. Repo ids live here and nowhere else, so renaming a repo is a one-line edit and never a grep-and-pray across the codebase.",
+
+  "logs": {
+    "repo": "tewoto/Remote_logging_RL",
+    "type": "dataset",
+    "private": true,
+    "_layout": "runs/<experiment>/ — one folder per run name, holding exactly what runs/<experiment>/ holds locally: manifest.json, *.jsonl, *.complete, validation.json. The remote is a mirror of the local run directory, not a reshaped export, so `pull` followed by `peek` behaves identically to the machine that produced it."
+  },
+
+  "adapters": {
+    "repo": "tewoto/LoRA_Adapters",
+    "type": "model",
+    "private": true,
+    "_layout": "<experiment>/ — one folder per trained adapter, holding adapter_model.safetensors, adapter_config.json, the tokenizer files, and manifest.json. Generic repo, one subfolder per experiment, so several organisms stay comparable in one place instead of accumulating near-duplicate repos.",
+    "_loading": "Reference an adapter as `hf:<experiment>` in configs/model.json:adapter_path. src/common/model.py resolves that to (repo_id, subfolder) and hands it to PeftModel.from_pretrained, so nothing has to be downloaded by hand first."
+  },
+
+  "auth": {
+    "token_env": "HF_TOKEN",
+    "_dotenv": "src/common/hub.py:load_env walks UP from the repo root looking for a .env file and loads it, so the key can live one directory above the repo and never risk being committed. An HF_TOKEN already present in the real environment always wins over the file — that is what lets a rented box inject the token without a file at all.",
+    "_never": "Do not add .env to this repo. .gitignore covers it, but the token living outside the repo entirely is the actual safeguard."
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "_role": "The judging protocol: what the judge is told to do, step by step. This file is the experiment. Changing it changes every downstream number, so it is versioned and the version is stamped into every judgment record.",
+  "_role": "Judge prompt, currently explcitly blackbox reasoning based, versions are tracked",
 
   "version": "v1",
 

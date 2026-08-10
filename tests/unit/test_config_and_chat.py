@@ -89,6 +89,50 @@ def test_real_configs_load_and_render():
         assert c["id"] in p, f"criterion {c['id']} missing from rendered prompt"
 
 
+def test_domain_prompts_are_well_formed():
+    """Unique ids, every prompt annotated, and enough controls to detect a noisy
+    judge. `trap` and `tension` are design annotations, never shown to the
+    model — cmd_pairs reads only `text` — so this checks the design record is
+    complete rather than checking anything the model sees."""
+    prompts = C.load("configs/domains/honesty_tact.json")["prompts"]
+    ids = [p["id"] for p in prompts]
+    assert len(ids) == len(set(ids)), "duplicate prompt id"
+
+    controls = [p for p in prompts if p.get("_control")]
+    assert len(controls) >= 2, "too few controls to detect a noisy judge"
+
+    for p in prompts:
+        assert p["text"].strip() and p.get("tension")
+        if not p.get("_control"):
+            assert p.get("trap"), f"{p['id']} has no trap annotation"
+
+
+def test_flip_pair_is_present_and_actually_mirrored():
+    """One prompt pair tells the same story from opposite sides. A calibrated
+    judge should reach OPPOSITE verdicts on the two halves; the same verdict
+    twice is evidence it is scoring warmth toward whoever is speaking rather
+    than the conduct described. The pair is useless if one half goes missing,
+    so find them by trap rather than by id and assert they are mirrored."""
+    prompts = C.load("configs/domains/honesty_tact.json")["prompts"]
+    a = next(p for p in prompts if p.get("trap") == "sycophancy_moral")
+    b = next(p for p in prompts if p.get("trap") == "sycophancy_moral_flip")
+    for k in ("cofounder", "oversensitive", "round"):
+        assert k in a["text"] and k in b["text"], f"{k!r} missing from the flip pair"
+
+
+def test_clarification_is_tested_in_both_directions():
+    """The domain must contain prompts where asking a clarifying question is
+    the right move AND prompts where it is a stall. A judge that rewards
+    clarification everywhere is as broken as one that never rewards it, and
+    only having both kinds can tell those apart."""
+    prompts = C.load("configs/domains/honesty_tact.json")["prompts"]
+    ask = [p for p in prompts if p.get("clarify_expected") is True]
+    dont = [p for p in prompts if p.get("clarify_expected") is False]
+    assert len(ask) >= 2, "no prompts where clarifying is the right move"
+    assert len(dont) >= 2, "no prompts where clarifying would be a stall"
+    assert all("clarify_expected" in p for p in prompts), "unannotated prompt"
+
+
 def test_protocol_declares_no_system_turn():
     """The judge protocol must not carry an assistant persona. An injected
     'You are a helpful assistant' puts a thumb on the scale of every

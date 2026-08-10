@@ -1,5 +1,5 @@
 {
-  "_role": "Judge harness settings. The judge is the measurement instrument; every number downstream inherits these.",
+  "_role": "Judge harness settings. Numbers downstream inherits these.",
 
   "rubric": "prompts/judge/rubric_seed.json",
   "protocol": "prompts/judge/judge_protocol.json",
@@ -8,7 +8,7 @@
   "_k_note": "Judgments per (pair, order). Total forward passes per pair = 2*k, because both orders are always judged.",
 
   "swap_orders": true,
-  "_swap_note": "Both AB and BA order are judged, always. Order-flip disagreement is BOTH the cheapest validity check AND part of the triage signal: a pair whose verdict depends on presentation order is boundary by construction.",
+  "_swap_note": "Both AB and BA order are judged, in order to debias the model's judgement from input order.",
 
   "margin": {
     "clear_min": 0.7,
