@@ -1,0 +1,28 @@
+{
+  "_role": "Judge harness settings. The judge is the measurement instrument; every number downstream inherits these.",
+
+  "rubric": "prompts/judge/rubric_seed.json",
+  "protocol": "prompts/judge/judge_protocol.json",
+
+  "k_samples": 3,
+  "_k_note": "Judgments per (pair, order). Total forward passes per pair = 2*k, because both orders are always judged.",
+
+  "swap_orders": true,
+  "_swap_note": "Both AB and BA order are judged, always. Order-flip disagreement is BOTH the cheapest validity check AND part of the triage signal: a pair whose verdict depends on presentation order is boundary by construction.",
+
+  "margin": {
+    "clear_min": 0.7,
+    "_clear_note": "net_margin = |n_A - n_B| / n_total across all 2*k judgments. >= clear_min AND swap_consistent => clear. Everything else => boundary. Threshold is a guess until validate.py calibrates it against docs/human_label."
+  },
+
+  "validate": {
+    "labels": "docs/human_label/labels.json",
+    "gates": {
+      "swap_invariance_min": 0.90,
+      "self_consistency_min": 0.70,
+      "clear_agreement_min": 0.85,
+      "length_bias_max": 0.30
+    },
+    "_gates_note": "src/cli.py survey refuses to run unless the current rubric version has a validation report passing these. A broken instrument must not be allowed to produce months of data."
+  }
+}

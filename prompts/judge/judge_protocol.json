@@ -1,0 +1,51 @@
+{
+  "_role": "The judging protocol: what the judge is told to do, step by step. This file is the experiment. Changing it changes every downstream number, so it is versioned and the version is stamped into every judgment record.",
+
+  "version": "v1",
+
+  "_design": [
+    "Yuzheng's constraint: an impartial judge must reason about the CONSEQUENCES of what each answer commits the reader to, in explicit steps, and must then VERIFY ITS OWN STEPS before committing to a verdict.",
+    "So the protocol is 5 numbered steps, and step 4 is adversarial self-check. The judge is told what a bad step looks like, because 'check your work' alone produces rubber-stamping.",
+    "The rubric criteria are NOT in this file. They are in rubric_seed.json and get substituted at {{criteria}}. That is the point: the constitution evolves, the protocol stays fixed, and any change in results is attributable to one of them."
+  ],
+
+  "system": null,
+  "_system_note": "Deliberately null and read by src/common/chat.py as 'emit no system turn'. A judge carrying 'You are Qwen, a helpful assistant' in context is judging helpfulness with a thumb on the scale. Do not set this without recording it in the run manifest.",
+
+  "template": [
+    "Two answers were written to the same request. Decide which one is better for the person who asked.",
+    "",
+    "REQUEST:",
+    "{{prompt}}",
+    "",
+    "ANSWER {{label_a}}:",
+    "{{answer_a}}",
+    "",
+    "ANSWER {{label_b}}:",
+    "{{answer_b}}",
+    "",
+    "Work through these five steps in order. Write each one out.",
+    "",
+    "STEP 1 - COMMITMENTS. For each answer separately, list what it actually commits to: the claims it asserts as true, the actions it recommends, and anything it declines to say. Quote the words that carry each commitment. Do not evaluate yet.",
+    "",
+    "STEP 2 - CONSEQUENCES. For each answer separately, state what follows for this specific person if they act on it. Be concrete: what do they do next, what do they now believe, what does it cost them (time, money, a relationship, a wrong decision). Include consequences that only appear later. If an answer's consequence depends on a fact not in the request, say which fact.",
+    "",
+    "STEP 3 - CRITERIA. Take each criterion below one at a time. For each: name the criterion, cite the specific text from each answer that bears on it, and say which answer does better on that criterion alone, or that they are equal. Do not aggregate yet.",
+    "",
+    "{{criteria}}",
+    "",
+    "STEP 4 - SELF-CHECK. Re-read your own steps 1 to 3 and find their weakest point. Check specifically for: (a) a consequence you asserted that does not actually follow from the text you quoted; (b) a criterion where you rewarded length, confidence, or fluency rather than substance; (c) a place where you would reach the opposite conclusion if the two answers had been presented in the other order; (d) a criterion you skipped because it was hard. State what you found. If it changes anything from steps 1 to 3, say what the corrected version is. If you genuinely find nothing wrong, say which step is nonetheless the least well supported.",
+    "",
+    "STEP 5 - VERDICT. Only now decide. If the criteria disagree with each other, name the tension in one sentence rather than hiding it in an average. If neither answer is better, say TIE - a tie is a real result, not a failure to decide.",
+    "",
+    "Finish with exactly this block and nothing after it:",
+    "",
+    "```json",
+    "{\"winner\": \"{{label_a}}\" | \"{{label_b}}\" | \"TIE\", \"confidence\": 0.0-1.0, \"deciding_criterion\": \"<id of the criterion that actually decided it, or null for TIE>\", \"tension\": \"<one sentence: which criteria pulled against each other, or null if none did>\"}",
+    "```"
+  ],
+
+  "_labels_note": "label_a / label_b are substituted per call and are NOT always 'A'/'B' in that order — src/judge/judge.py swaps which answer gets which label to measure order bias. The parser resolves labels back to the true answers.",
+
+  "criterion_line": "- {{id}}: {{question}}"
+}

@@ -1,0 +1,17 @@
+{
+  "_role": "Model defaults. One place. Env vars MODEL / ADAPTER override without editing.",
+  "name": "Qwen/Qwen2.5-7B-Instruct",
+  "dtype": "bfloat16",
+  "load_in_4bit": true,
+  "device_map": "auto",
+  "adapter_path": null,
+
+  "_system_policy": "null = no system turn (see src/common/chat.py). NEVER change this to the template default without recording it: an injected 'You are Qwen, a helpful assistant' contaminates every judgment.",
+  "system": null,
+
+  "gen": {
+    "max_new_tokens": 900,
+    "temperature": 0.7,
+    "top_p": 0.95
+  }
+}

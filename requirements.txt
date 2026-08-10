@@ -1,0 +1,15 @@
+# ---- judge slice (what is built today) ----
+pytest>=8.0               # ./run.sh test — unit + smoke, no GPU needed
+
+# ---- real model path ----
+torch>=2.3
+transformers>=4.44
+accelerate>=0.33
+peft>=0.12                # LoRA adapters
+bitsandbytes>=0.43        # 4-bit / QLoRA
+huggingface_hub>=0.24
+
+# ---- later stages, not imported yet ----
+# trl>=0.9                # preference training (DPO) once triage produces pairs
+# scikit-learn>=1.5       # probes, once there are activations to probe
+# numpy, scipy            # arrive with the above
