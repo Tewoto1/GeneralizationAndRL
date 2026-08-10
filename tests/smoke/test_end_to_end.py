@@ -135,5 +135,5 @@ def test_6_peek_reports_without_mutating(run_dir, capsys):
     before = run_dir.count("results")
     main(["peek", "--run", "smoke", "-v"])
     out = capsys.readouterr().out
-    assert "clear:" in out and "boundary:" in out
+    assert "clear" in out and "boundary" in out
     assert run_dir.count("results") == before

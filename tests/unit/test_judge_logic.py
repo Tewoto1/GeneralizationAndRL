@@ -89,9 +89,9 @@ def test_missing_selfcheck_is_counted():
 # -------------------------------------------------------------- validation ---
 def _pair(pid, winner, margin, clear, swap=True, la=100, lb=100, orders=None):
     return PairResult(pid, winner, margin, swap, clear, 4, 0,
-                      {"a": 4, "b": 0, "TIE": 0},
-                      orders or {"a": {"a": 2, "b": 0, "TIE": 0},
-                                 "b": {"a": 2, "b": 0, "TIE": 0}}
+                      votes={"a": 4, "b": 0, "TIE": 0},
+                      per_order=orders or {"a": {"a": 2, "b": 0, "TIE": 0},
+                                           "b": {"a": 2, "b": 0, "TIE": 0}}
                       ).as_record() | {"len_a": la, "len_b": lb}
 
 
@@ -178,13 +178,31 @@ def test_preflight_blocks_on_unparseable_output():
     assert not pre["ok"] and "unparseable" in pre["problems"][0]
 
 
-def test_preflight_blocks_on_skipped_selfcheck_and_blames_the_token_budget():
-    """Step 4 missing is nearly always truncation, so the message must say so —
-    a pilot that reports a symptom without the likely cause wastes the night
-    it was supposed to save."""
+def test_preflight_names_truncation_as_the_cause_when_it_is():
+    """Truncation is the UPSTREAM cause of both other symptoms: a completion cut
+    off before the verdict block has no JSON (reads as unparseable) and no
+    STEP 4 (reads as skipped self-check). So when the generator reports the cap
+    was hit, that must be problem #1 and must name the number — otherwise the
+    pilot sends you to the parser for a problem that is not in the parser."""
+    js = _js(6, steps=(1, 2, 3), ok=False)
+    for j in js:
+        j["truncated"] = True
+    pre = preflight([{"pair_id": "d01"}], js, _CLEAN, max_new_tokens=900)
+    assert not pre["ok"]
+    assert "hit the token cap" in pre["problems"][0]
+    assert "max_new_tokens=900" in pre["problems"][0]
+    assert all("downstream of the truncation" in p for p in pre["problems"][1:])
+
+
+def test_preflight_blames_the_protocol_when_nothing_was_truncated():
+    """Same symptom, different cause. If the cap was never hit, a missing
+    STEP 4 is the judge ignoring the protocol, and the message must not send
+    the reader off to raise a limit that is not binding."""
     pre = preflight([{"pair_id": "d01"}], _js(6, steps=(1, 2, 3)), _CLEAN,
                     max_new_tokens=900)
-    assert not pre["ok"] and "max_new_tokens (900)" in pre["problems"][0]
+    assert not pre["ok"]
+    assert "skipped the self-check" in pre["problems"][0]
+    assert "token cap" not in pre["problems"][0]
 
 
 def test_preflight_blocks_on_an_injected_system_prompt():

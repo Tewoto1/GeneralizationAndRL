@@ -65,19 +65,32 @@ def preflight(results: list[dict], judgments: list[dict], provenance: dict,
     """
     n = len(judgments) or 1
     unparseable = sum(1 for j in judgments if not j.get("ok"))
+    truncated = sum(1 for j in judgments if j.get("truncated"))
     no_selfcheck = sum(1 for j in judgments if 4 not in (j.get("steps_present") or []))
     policy = (provenance.get("chat") or {}).get("system_policy")
 
     problems = []
+    # Truncation is checked FIRST and reported as itself. It is the upstream
+    # cause of both other symptoms — a completion cut off before the verdict
+    # block has no JSON (reads as unparseable) and no STEP 4 (reads as skipped
+    # self-check) — so naming it first stops the other two sending you to the
+    # parser and the protocol for a problem that is neither.
+    if truncated > n * 0.05:
+        problems.append(
+            f"{truncated}/{n} completions hit the token cap"
+            + (f" (max_new_tokens={max_new_tokens})" if max_new_tokens else "")
+            + " — raise it; the cap is a runaway guard, not a budget, and it "
+              "only costs when it binds")
     if unparseable > n * 0.05:
         problems.append(
-            f"{unparseable}/{n} completions unparseable — read the raw text in "
-            f"judgments.jsonl before spending a night on this")
+            f"{unparseable}/{n} completions unparseable"
+            + (" — likely downstream of the truncation above" if truncated else
+               " — read the raw text in judgments.jsonl before spending a night on this"))
     if no_selfcheck > n * 0.2:
         problems.append(
             f"{no_selfcheck}/{n} judgments skipped the self-check step"
-            + (f" — most likely max_new_tokens ({max_new_tokens}) truncating "
-               f"before STEP 4" if max_new_tokens else ""))
+            + (" — likely downstream of the truncation above" if truncated else
+               " — the protocol asks for STEP 4 explicitly, so check the raw text"))
     if policy != "none":
         problems.append(
             f"system_policy is {policy!r}, not 'none' — a persona in context "
@@ -87,7 +100,8 @@ def preflight(results: list[dict], judgments: list[dict], provenance: dict,
 
     return {"ok": not problems, "problems": problems,
             "n_judgments": len(judgments), "unparseable": unparseable,
-            "no_selfcheck": no_selfcheck, "system_policy": policy}
+            "truncated": truncated, "no_selfcheck": no_selfcheck,
+            "system_policy": policy}
 
 
 def add_label(path: str | Path, entry: dict) -> int:

@@ -91,6 +91,7 @@ class PairResult:
     clear: bool
     n_valid: int
     n_unparseable: int
+    n_truncated: int = 0
     votes: dict = field(default_factory=dict)
     per_order: dict = field(default_factory=dict)
     confidence_mean: float | None = None
@@ -140,17 +141,25 @@ def judge_pair(pair_id: str, prompt: str, answer_a: str, answer_b: str,
     crits: list[str] = []
     tensions: list[str] = []
     n_unparseable = 0
+    n_truncated = 0
     steps_missing = 0
 
     for first_is, first, second in orders:
         jp = build_prompt(protocol, rubric, prompt, first, second)
         completions = generate(jp, k)
+        # Optional, generator-supplied: which completions hit the token cap.
+        # `getattr` rather than a required field so the stub and any future
+        # backend stay valid Generate callables without implementing it.
+        trunc = list(getattr(generate, "truncated", []) or [])
         js = []
         for i, text in enumerate(completions):
             j = parse(text)
             js.append(j)
             if capture is not None:
                 capture.on_judgment(f"{pair_id}:{first_is}:{i}", jp, text)
+            was_cut = trunc[i] if i < len(trunc) else False
+            if was_cut:
+                n_truncated += 1
             if not j.ok:
                 n_unparseable += 1
             if 4 not in j.steps_present:
@@ -164,7 +173,8 @@ def judge_pair(pair_id: str, prompt: str, answer_a: str, answer_b: str,
             records.append({
                 "kind": "judgment", "pair_id": pair_id, "order_first": first_is,
                 "sample": i, "rubric_version": rubric.get("version"),
-                "protocol_version": protocol.get("version"), **j.as_record(),
+                "protocol_version": protocol.get("version"),
+                "truncated": was_cut, **j.as_record(),
             })
         per_order[first_is] = _tally(js, "A", "B", first_is)
 
@@ -173,7 +183,7 @@ def judge_pair(pair_id: str, prompt: str, answer_a: str, answer_b: str,
 
     if n_valid == 0:
         return PairResult(pair_id, "UNDECIDED", 0.0, False, False, 0,
-                          n_unparseable, votes, per_order,
+                          n_unparseable, n_truncated, votes, per_order,
                           steps_missing=steps_missing), records
 
     margin = abs(votes["a"] - votes["b"]) / n_valid
@@ -191,7 +201,7 @@ def judge_pair(pair_id: str, prompt: str, answer_a: str, answer_b: str,
         pair_id=pair_id, winner=winner, margin=margin,
         swap_consistent=swap_consistent,
         clear=bool(margin >= clear_min and swap_consistent and winner != "TIE"),
-        n_valid=n_valid, n_unparseable=n_unparseable,
+        n_valid=n_valid, n_unparseable=n_unparseable, n_truncated=n_truncated,
         votes=votes, per_order=per_order,
         confidence_mean=(sum(all_conf) / len(all_conf)) if all_conf else None,
         deciding_criteria=sorted(set(crits)), tensions=tensions,
@@ -200,8 +210,21 @@ def judge_pair(pair_id: str, prompt: str, answer_a: str, answer_b: str,
 
 
 # ------------------------------------------------------------------ generators --
-def hf_generator(model_cfg: dict) -> tuple[Generate, dict]:
+def hf_generator(model_cfg: dict, role: str = "answer") -> tuple[Generate, dict]:
     """Build a `generate` backed by a real HF model. Imports torch lazily.
+
+    `role` selects a generation profile: `gen` merged with `gen[role]`. The two
+    roles want opposite things and sharing one budget breaks both of them.
+
+      answer  short. The domain rewards brevity, and every token here is also a
+              token the judge must later read twice (once per presentation
+              order), so a long answer costs three times over.
+      judge   long, and cooler. The five-step protocol quotes both answers back
+              before it reaches the verdict block, so a budget sized for an
+              answer truncates mid-STEP-3 and the JSON block is never emitted —
+              which surfaces as "unparseable", not as "truncated". Lower
+              temperature because a judge that samples wildly cannot be
+              self-consistent or order-invariant.
 
     Returns (generate, provenance) — provenance goes straight into the run
     manifest and includes what the chat template *would* have injected, so a
@@ -224,23 +247,38 @@ def hf_generator(model_cfg: dict) -> tuple[Generate, dict]:
                                 device_map=model_cfg.get("device_map", "auto"))
 
     system = model_cfg.get("system")  # None => no system turn. See chat.py.
-    gen = model_cfg.get("gen", {})
+    base = {k: v for k, v in model_cfg.get("gen", {}).items() if not isinstance(v, dict)}
+    gen = {**base, **model_cfg.get("gen", {}).get(role, {})}
+
+    cap = gen.get("max_new_tokens", 4000)
 
     def generate(prompt: str, n: int) -> list[str]:
         text = render_chat(tok, [{"role": "user", "content": prompt}], system=system)
         enc = tok([text] * n, return_tensors="pt", padding=True).to(model.device)
         out = model.generate(
             **enc,
-            max_new_tokens=gen.get("max_new_tokens", 900),
+            max_new_tokens=cap,
             temperature=gen.get("temperature", 0.7),
             top_p=gen.get("top_p", 0.95),
             do_sample=True,
             pad_token_id=tok.pad_token_id,
         )
-        return tok.batch_decode(out[:, enc["input_ids"].shape[1]:],
-                                skip_special_tokens=True)
+        new = out[:, enc["input_ids"].shape[1]:]
 
-    return generate, {"model": name, "chat": chat_provenance(tok, system)}
+        # Did generation stop because the model finished, or because it ran out
+        # of budget? Without this the two are indistinguishable downstream: a
+        # truncated completion has no verdict block, so it is recorded as
+        # `unparseable`, which points at the parser instead of at the cap.
+        generate.truncated = [                        # type: ignore[attr-defined]
+            bool(row.shape[0] >= cap and tok.eos_token_id not in row.tolist())
+            for row in new
+        ]
+        return tok.batch_decode(new, skip_special_tokens=True)
+
+    generate.truncated = []                           # type: ignore[attr-defined]
+
+    return generate, {"model": name, "role": role, "gen": gen,
+                      "chat": chat_provenance(tok, system)}
 
 
 # ------------------------------------------------------------- stub backend --

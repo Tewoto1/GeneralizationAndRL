@@ -22,7 +22,7 @@ import sys
 from pathlib import Path
 
 from .common import config as cfg_mod
-from .common.io import Run
+from .common.io import Progress, Run, box, c
 from .judge import judge as J
 from .judge import validate as V
 
@@ -39,10 +39,12 @@ def _load_all(domain: str | None = None) -> dict:
     return out
 
 
-def _generator(cfg: dict, stub: bool):
+def _generator(cfg: dict, stub: bool, role: str = "answer"):
+    """`role` picks the generation profile — see judge.hf_generator."""
     if stub:
-        return J.stub_generator(), {"model": "STUB", "chat": {"system_policy": "none"}}
-    return J.hf_generator(cfg["model"])
+        return J.stub_generator(), {"model": "STUB", "role": role,
+                                    "chat": {"system_policy": "none"}}
+    return J.hf_generator(cfg["model"], role=role)
 
 
 # ------------------------------------------------------------------- stages ---
@@ -62,17 +64,18 @@ def cmd_pairs(a) -> None:
         print(f"[pairs] already complete ({run.count('pairs')} pairs) — use --fresh to redo")
         return
 
-    generate, prov = _generator(cfg, a.stub)
+    generate, prov = _generator(cfg, a.stub, role="answer")
     run.note(answer_model=prov)
 
     prompts = cfg["domain"]["prompts"]
     if getattr(a, "limit", None):
         prompts = prompts[:a.limit]
     n = 0
+    bar = Progress("pairs", len(prompts), style="blue")
     for p in prompts:
         outs = generate(p["text"], 2)
         if len(outs) < 2:
-            print(f"[pairs] {p['id']}: model returned {len(outs)} < 2 samples, skipped")
+            bar.step(c(f"{p['id']} model returned {len(outs)} < 2 samples, skipped", "red"))
             continue
         run.write("pairs", {
             "pair_id": p["id"], "prompt": p["text"],
@@ -81,10 +84,11 @@ def cmd_pairs(a) -> None:
             "len_a": len(outs[0].strip()), "len_b": len(outs[1].strip()),
         })
         n += 1
-        print(f"[pairs] {p['id']} ({n}/{len(prompts)})", flush=True)
+        bar.step(f"{c(p['id'], 'bold')} {c(f'{len(outs[0])}/{len(outs[1])} chars', 'grey')}")
+    bar.done()
 
     run.mark_complete("pairs", n_pairs=n)
-    print(f"[pairs] {n} pairs -> {run.path('pairs')}")
+    print(c(f"{n} pairs -> {run.path('pairs')}", "green"))
     if a.push:
         from .common import hub
         hub.push_run(a.run, message=f"{a.run}: {n} pairs")
@@ -103,13 +107,15 @@ def cmd_judge(a) -> None:
         return
 
     jc = cfg["judge"]
-    generate, prov = _generator(cfg, a.stub)
+    generate, prov = _generator(cfg, a.stub, role="judge")
     run.note(judge_model=prov, rubric_version=cfg["rubric"].get("version"),
              protocol_version=cfg["protocol"].get("version"))
 
     pairs = list(run.read("pairs"))
     n_unparseable = 0
-    for i, p in enumerate(pairs, 1):
+    n_clear = n_flip = n_trunc = 0
+    bar = Progress("judge", len(pairs), style="magenta")
+    for p in pairs:
         result, records = J.judge_pair(
             p["pair_id"], p["prompt"], p["answer_a"], p["answer_b"],
             protocol=cfg["protocol"], rubric=cfg["rubric"], generate=generate,
@@ -123,15 +129,29 @@ def cmd_judge(a) -> None:
                               "tension": p.get("tension"),
                               "is_control": p.get("is_control", False)})
         n_unparseable += result.n_unparseable
-        print(f"[judge] {p['pair_id']} ({i}/{len(pairs)}) "
-              f"winner={result.winner} margin={result.margin:.2f} "
-              f"{'clear' if result.clear else 'BOUNDARY'}"
-              f"{'' if result.swap_consistent else ' SWAP-FLIP'}", flush=True)
+        n_trunc += result.n_truncated
+        n_clear += bool(result.clear)
+        n_flip += not result.swap_consistent
+        bar.step(
+            f"{c(p['pair_id'], 'bold')} "
+            f"{result.winner:>9} m={result.margin:.2f} "
+            + (c("clear", "green") if result.clear else c("boundary", "yellow"))
+            + ("" if result.swap_consistent else " " + c("SWAP-FLIP", "red"))
+            + ("" if not result.n_unparseable else
+               " " + c(f"{result.n_unparseable} unparseable", "red")))
+    bar.done()
 
     run.mark_complete("judge", n_pairs=len(pairs), n_unparseable=n_unparseable)
+    box("judge", [
+        ("pairs judged", c(len(pairs), "bold")),
+        ("clear / boundary", f"{c(n_clear, 'green')} / {c(len(pairs) - n_clear, 'yellow')}"),
+        ("swap-flips", c(n_flip, "red" if n_flip else "green")),
+        ("unparseable", c(n_unparseable, "red" if n_unparseable else "green")),
+        ("truncated", c(n_trunc, "red" if n_trunc else "green")),
+    ], style="magenta")
     if n_unparseable:
-        print(f"[judge] WARNING {n_unparseable} unparseable completions "
-              f"(kept in judgments.jsonl with raw text)")
+        print(c(f"WARNING {n_unparseable} unparseable completions "
+                f"(kept in judgments.jsonl with raw text)", "red"))
     if a.push:
         from .common import hub
         hub.push_run(a.run, message=f"{a.run}: judged {len(pairs)} pairs")
@@ -151,26 +171,35 @@ def cmd_validate(a) -> None:
     rep["protocol_version"] = cfg["protocol"].get("version")
     (run.dir / "validation.json").write_text(json.dumps(rep, indent=2))
 
-    print(json.dumps({k: v for k, v in rep.items()
-                      if k not in ("margin_calibration", "gate_results")}, indent=2))
-    print("\ngates:")
+    rows = [
+        ("pairs / judgments", f"{rep['n_pairs']} / {rep['n_judgments']}"),
+        ("human labels matched", c(rep["n_labelled"],
+                                   "green" if rep["n_labelled"] else "red")),
+        ("parse rate", f"{rep['parse_rate']:.0%}"),
+        ("step compliance", f"{rep['step_compliance']:.0%}"),
+        "",
+    ]
     for name, g in rep["gate_results"].items():
-        print(f"  {'PASS' if g['passed'] else 'FAIL'}  {name:18s} "
-              f"{g['value']:<6} ({g['kind']} {g['threshold']})")
+        mark = c("PASS", "green", "bold") if g["passed"] else c("FAIL", "red", "bold")
+        rows.append((f"  {mark}  {name}",
+                     c(f"{g['value']:<6} ({g['kind']} {g['threshold']})", "grey")))
+    box(f"validate  rubric={rep['rubric_version']} protocol={rep['protocol_version']}",
+        rows, style="green" if rep["passed"] else "red")
+
     if rep.get("warning"):
-        print(f"\nWARNING: {rep['warning']}")
+        print(c("WARNING: " + rep["warning"], "yellow"))
 
     if rep["passed"]:
         run.mark_complete("validate", **{k: rep[k] for k in
                                          ("swap_invariance", "self_consistency",
                                           "clear_agreement") if k in rep})
-        print("\n[validate] PASSED — survey may run against this judge.")
+        print(c("PASSED — survey may run against this judge.", "green", "bold"))
         if a.push:
             from .common import hub
             hub.push_run(a.run, message=f"{a.run}: judge validated")
     else:
         (run.dir / "validate.complete").unlink(missing_ok=True)
-        print(f"\n[validate] FAILED: {', '.join(rep['failed_gates'])}")
+        print(c(f"FAILED: {', '.join(rep['failed_gates'])}", "red", "bold"))
         print("Downstream stages are blocked. Fix the protocol or rubric, "
               "re-judge, and validate again.")
         sys.exit(1)
@@ -202,28 +231,37 @@ def cmd_pilot(a) -> None:
     run = Run.open(a.run)
     prov = json.loads((run.dir / "manifest.json").read_text()).get("judge_model", {})
     pre = V.preflight(list(run.read("results")), list(run.read("judgments")), prov,
-                      max_new_tokens=cfg["model"]["gen"]["max_new_tokens"])
+                      max_new_tokens=cfg["model"]["gen"].get("judge", {}).get(
+                          "max_new_tokens", cfg["model"]["gen"]["max_new_tokens"]))
 
     per_pair = t_pairs + t_judge
     eta_min = per_pair * total / 60
-    print("\n" + "=" * 62)
-    print(f"  answer generation   {t_pairs:6.1f} s/pair")
-    print(f"  judging             {t_judge:6.1f} s/pair  "
-          f"({cfg['judge']['k_samples']} samples x 2 orders)")
-    print(f"  TOTAL               {per_pair:6.1f} s/pair")
-    print(f"\n  full domain ({total} prompts): {eta_min:.0f} min "
-          f"= ${eta_min / 60 * a.rate:.2f} at ${a.rate}/hr")
-    print(f"  unparseable {pre['unparseable']}/{pre['n_judgments']}   "
-          f"missing self-check {pre['no_selfcheck']}/{pre['n_judgments']}   "
-          f"system_policy {pre['system_policy']!r}")
-    print("=" * 62)
+    ok = lambda v, good: c(v, "green" if good else "red")  # noqa: E731
+
+    box("pilot", [
+        ("answer generation", f"{t_pairs:6.1f} s/pair"),
+        (f"judging ({cfg['judge']['k_samples']} samples x 2 orders)",
+         f"{t_judge:6.1f} s/pair"),
+        ("TOTAL", c(f"{per_pair:6.1f} s/pair", "bold")),
+        "",
+        (f"full domain ({total} prompts)",
+         c(f"{eta_min:.0f} min = ${eta_min / 60 * a.rate:.2f} at ${a.rate}/hr", "bold")),
+        "",
+        ("truncated (hit token cap)",
+         ok(f"{pre['truncated']}/{pre['n_judgments']}", not pre["truncated"])),
+        ("unparseable", ok(f"{pre['unparseable']}/{pre['n_judgments']}",
+                           not pre["unparseable"])),
+        ("missing self-check", ok(f"{pre['no_selfcheck']}/{pre['n_judgments']}",
+                                  not pre["no_selfcheck"])),
+        ("system_policy", ok(pre["system_policy"], pre["system_policy"] == "none")),
+    ], style="green" if pre["ok"] else "red")
 
     if not pre["ok"]:
-        print("\nDO NOT START THE OVERNIGHT RUN:")
+        print(c("DO NOT START THE FULL RUN:", "red", "bold"))
         for p in pre["problems"]:
-            print(f"  - {p}")
+            print(c("  - " + p, "red"))
         sys.exit(1)
-    print("\n[pilot] clean. Safe to start the full run.")
+    print(c("pilot clean. Safe to start the full run.", "green", "bold"))
 
 
 def cmd_label(a) -> None:
@@ -331,27 +369,37 @@ def cmd_peek(a) -> None:
     """Read a run without disturbing it."""
     run = Run.open(a.run)
     stages = [p.stem for p in sorted(run.dir.glob("*.complete"))]
-    print(f"run: {run.dir}\ncomplete stages: {', '.join(stages) or '(none)'}")
+    rows = [("run", c(run.dir.name, "bold")),
+            ("complete stages", c(", ".join(stages) or "(none)",
+                                  "green" if stages else "yellow"))]
     for stream in ("pairs", "judgments", "results"):
         if run.path(stream).exists():
-            print(f"  {stream:12s} {run.count(stream)} records")
+            rows.append((f"  {stream}", f"{run.count(stream)} records"))
 
     results = list(run.read("results"))
+    if results:
+        clear = [r for r in results if r["clear"]]
+        flips = [r for r in results if not r["swap_consistent"]]
+        rows += ["",
+                 ("clear", c(f"{len(clear)}/{len(results)}", "green")),
+                 ("boundary", c(len(results) - len(clear), "yellow")),
+                 ("swap-flips", c(len(flips), "red" if flips else "green"))]
+    box("peek", rows)
     if not results:
         return
-    clear = [r for r in results if r["clear"]]
-    flips = [r for r in results if not r["swap_consistent"]]
+
     ctrl_bad = [r for r in results if r.get("is_control") and not r["clear"]]
-    print(f"\nclear: {len(clear)}/{len(results)}   "
-          f"boundary: {len(results) - len(clear)}   swap-flips: {len(flips)}")
     if ctrl_bad:
-        print(f"  !! {len(ctrl_bad)} CONTROL pair(s) landed in boundary: "
-              f"{', '.join(r['pair_id'] for r in ctrl_bad)} — "
-              f"a control that is not clear means the judge is noisy, not that the case is hard.")
+        print(c(f"!! {len(ctrl_bad)} CONTROL pair(s) landed in boundary: "
+                f"{', '.join(r['pair_id'] for r in ctrl_bad)} — a control that is "
+                f"not clear means the judge is noisy, not that the case is hard.",
+                "red", "bold"))
     if a.verbose:
         for r in results:
-            print(f"  {r['pair_id']:6s} {r['winner']:5s} m={r['margin']:.2f} "
-                  f"{'clear' if r['clear'] else 'bound'} {r.get('tension') or ''}")
+            print(f"  {c(r['pair_id'], 'bold'):16s} {r['winner']:>9} "
+                  f"m={r['margin']:.2f} "
+                  + (c("clear", "green") if r["clear"] else c("bound", "yellow"))
+                  + " " + c(r.get("tension") or "", "grey"))
 
 
 # --------------------------------------------------------------------- main ---

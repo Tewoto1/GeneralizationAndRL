@@ -30,21 +30,53 @@ judge always picks whichever answer is shown first, one where it emits no
 parseable verdict, one where it skips the self-check step — and you should see
 the harness catch each of them and the validation gate refuse to pass.
 
-## Renting a box: the overnight sequence
+## Renting a box
 
 ```bash
-# 1. on your laptop, before paying for anything          ~1 second
+# on your laptop, before paying for anything          ~1 second
 ./run.sh test
 
-# 2. on the box, before committing to the night          ~3 minutes
-./run.sh whoami                 # token resolves
-./run.sh pilot p0               # REAL model, 2 prompts, end to end
+# on the box
+echo 'HF_TOKEN=hf_xxx' > ../.env   # one dir ABOVE the repo, never committed
+pip install -r requirements.txt
+./run.sh test
+./run.sh whoami                    # token resolves
+./run.sh pilot p0                  # REAL model, 2 prompts, ~3 min
 
-# 3. the run itself
-tmux new -s mo                  # tmux on the BOX, not your laptop
+# unattended
+tmux new -s mo                     # tmux on the BOX, not your laptop
 ./run.sh night r0
 tail -f r0.log
+
+# or attended, labelling in the middle
+./run.sh pairs r0 --push
+./run.sh label r0
+./run.sh judge r0 --push && ./run.sh validate r0
 ```
+
+`pilot` is the step that saves the run. `./run.sh test` proves the plumbing
+with a canned model; it cannot tell you whether the real model fits in VRAM,
+whether it emits a parseable verdict block, or how long a pair takes — the
+three things that actually waste a rented box. `pilot` measures all three and
+prints an extrapolation:
+
+```
+  answer generation     18.4 s/pair
+  judging               71.2 s/pair  (3 samples x 2 orders)
+  TOTAL                 89.6 s/pair
+
+  full domain (25 prompts): 37 min = $0.47 at $0.75/hr
+  unparseable 0/12   missing self-check 0/12
+```
+
+It **exits 1** and tells you not to start if more than 5% of completions are
+unparseable, if more than 20% skipped the self-check step (almost always
+`max_new_tokens` truncating before STEP 4), or if a system prompt is being
+injected.
+
+`night` runs the sweep under `nohup` with unbuffered stdout, pushing to the Hub
+on each stage's success path, so a dropped ssh session doesn't kill it and
+`tail -f` actually shows progress.
 
 `pilot` is the step that saves the night. `./run.sh test` proves the plumbing
 with a canned model; it cannot tell you whether the real model fits in VRAM,
@@ -70,12 +102,17 @@ injected. Better to learn that in minute three than at 7am.
 on each stage's success path, so a dropped ssh session doesn't kill it and
 `tail -f` actually shows progress.
 
-## Labelling, fast
+## Labelling
 
 ```bash
 ./run.sh label r0                    # blind: judge's verdict hidden
-./run.sh label r0 --boundary-only    # just the hard ones
+./run.sh label r0 --boundary-only    # just the hard ones (needs `judge` first)
 ```
+
+Best run after `pairs` and before `judge`: with no verdicts in existence there
+is nothing to anchor on, so the labels are blind by construction. It also
+audits the prompts — if half the pairs are two interchangeable blobs, the
+domain needs work and judging them won't fix it.
 
 Shows the request and both answers, takes `a` / `b` / `t`(ie) / `s`(kip) /
 `q`(uit), then one optional line of reasoning and the deciding criterion.

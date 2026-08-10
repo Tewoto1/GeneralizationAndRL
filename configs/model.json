@@ -9,9 +9,24 @@
   "_system_policy": "null = no system turn (see src/common/chat.py). NEVER change this to the template default without recording it: an injected 'You are Qwen, a helpful assistant' contaminates every judgment.",
   "system": null,
 
+  "_gen_note": [
+    "Per-role generation profiles. src/judge/judge.py:hf_generator merges `gen` with `gen[role]`, role being 'answer' (cmd_pairs) or 'judge' (cmd_judge).",
+
+    "WHY THE CAPS ARE GENEROUS. max_new_tokens is a CEILING, not a target — generation stops at EOS, so a cap only costs anything on the runs where it actually binds. VRAM is not the constraint either: KV cache here is ~56 KB/token, so even 4000 tokens x 3 sequences is under 0.7 GB on a 24 GB card. The only real reason for a cap is to stop a model that has fallen into a repetition loop from generating forever. So set it well above what the task needs and let EOS do the work. 900 was an arbitrary number that silently truncated most judgments mid-STEP-3, and a truncated completion has no verdict block, so it was recorded as `unparseable` — pointing at the parser instead of at the cap.",
+
+    "WHY THE ANSWER CAP IS ALSO GENEROUS. Capping answers low looks like a free speedup and is not: a truncated answer is not a concise answer, it is a broken one, and the judge would then score `completeness` against an artefact this harness created. Brevity is one of the things being measured, so it has to be the model's choice, never the harness's."
+  ],
+
   "gen": {
-    "max_new_tokens": 900,
+    "max_new_tokens": 2000,
     "temperature": 0.7,
-    "top_p": 0.95
+    "top_p": 0.95,
+
+    "judge": {
+      "max_new_tokens": 4000,
+      "_note": "The five-step protocol quotes both answers back before it reaches the verdict block. Judgments in the pilot were dying mid-STEP-3 and mid-STEP-4 at 900. `truncated` is now recorded per judgment, so if this still binds you will see it named as truncation rather than inferred from a parse failure.",
+      "temperature": 0.3,
+      "_temperature_note": "Cooler than the answer role. A judge sampling at 0.7 cannot be self-consistent or order-invariant, and those are two of the six validation gates. Still above 0 so k_samples measures something."
+    }
   }
 }
