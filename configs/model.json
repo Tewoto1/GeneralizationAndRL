@@ -2,7 +2,7 @@
   "_role": "Model defaults. One place. Env vars MODEL / ADAPTER override without editing.",
   "name": "Qwen/Qwen2.5-7B-Instruct",
   "dtype": "bfloat16",
-  "load_in_4bit": true,
+  "load_in_4bit": false,
   "device_map": "auto",
   "adapter_path": null,
 
@@ -18,12 +18,12 @@
   ],
 
   "gen": {
-    "max_new_tokens": 2000,
+    "max_new_tokens": 3000,
     "temperature": 0.7,
     "top_p": 0.95,
 
     "judge": {
-      "max_new_tokens": 4000,
+      "max_new_tokens": 6000,
       "_note": "The five-step protocol quotes both answers back before it reaches the verdict block. Judgments in the pilot were dying mid-STEP-3 and mid-STEP-4 at 900. `truncated` is now recorded per judgment, so if this still binds you will see it named as truncation rather than inferred from a parse failure.",
       "temperature": 0.3,
       "_temperature_note": "Cooler than the answer role. A judge sampling at 0.7 cannot be self-consistent or order-invariant, and those are two of the six validation gates. Still above 0 so k_samples measures something."
