@@ -11,6 +11,7 @@
 #   ./run.sh peek    r0              read a run, safe mid-experiment
 #   ./run.sh label   r0              hand-label pairs, blind to the judge
 #   ./run.sh night   r0              full sweep under nohup, pushes to the Hub
+#   ./run.sh night   r0 --kill       ... and destroys the vast instance when done
 #
 # Recommended first-time order (label BEFORE judging — see README):
 #   ./run.sh pilot p0 ; ./run.sh pairs r0 --push ; ./run.sh label r0 ; ./run.sh judge r0
@@ -56,16 +57,42 @@ case "$CMD" in
 
   night)
     need_run
+    KILL=0
+    for arg in "$@"; do [ "$arg" = "--kill" ] && KILL=1; done
+
     # Detached, unbuffered, pushing on each stage's success path. nohup because
     # an ssh drop must not kill a paid-for run; PYTHONUNBUFFERED because python
     # block-buffers stdout when it is a file, so `tail -f` would show nothing
     # for hours. tmux belongs on the BOX, not on your laptop.
     export PYTHONUNBUFFERED=1
+
+    # Chain shape matters. `pairs && judge` means a destroy can only ever happen
+    # after both have completed AND pushed. `validate` is wrapped in `|| true`
+    # because a judge failing its gates is a RESULT, not a crash -- it must not
+    # keep the box alive at $/hr, and it must not prevent the log being saved.
+    KILLCMD=""
+    if [ "$KILL" = 1 ]; then
+      KILLCMD="
+      cp '$RUN.log' 'runs/$RUN/console.log' 2>/dev/null || true
+      $PY -m src.cli sync push-run --run '$RUN' --message '$RUN: console log' || true
+      if command -v vastai >/dev/null && [ -n \"\${CONTAINER_ID:-}\" ]; then
+        echo \"destroying instance \$CONTAINER_ID\"
+        vastai destroy instance \$CONTAINER_ID
+      else
+        echo 'CANNOT AUTO-DESTROY: vastai CLI missing or CONTAINER_ID unset.'
+        echo 'Install with: pip install vastai && vastai set api-key <key>'
+      fi"
+    fi
+
     nohup bash -c "\
       $PY -m src.cli pairs    --run '$RUN' --push && \
       $PY -m src.cli judge    --run '$RUN' --push && \
-      $PY -m src.cli validate --run '$RUN' --push" > "$RUN.log" 2>&1 &
+      { $PY -m src.cli validate --run '$RUN' --push || true; } \
+      $KILLCMD" > "$RUN.log" 2>&1 &
     echo "started pid $! -> $RUN.log"
+    if [ "$KILL" = 1 ]; then
+      echo "will destroy the instance when the chain finishes"
+    fi
     echo "watch with:  tail -f $RUN.log"
     ;;
 

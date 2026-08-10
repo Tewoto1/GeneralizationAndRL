@@ -404,6 +404,15 @@ def cmd_peek(a) -> None:
 
 # --------------------------------------------------------------------- main ---
 def main(argv: list[str] | None = None) -> None:
+    # Load .env at STARTUP, not lazily inside the first hub call. huggingface_hub
+    # reads HF_TOKEN from the real process environment when `from_pretrained`
+    # downloads weights, and that happens long before any of our sync code runs
+    # — so a lazily-loaded token produced "sending unauthenticated requests"
+    # during model download while `whoami` worked fine, which looks like a
+    # contradiction and is just an ordering bug.
+    from .common.hub import load_env
+    load_env()
+
     ap = argparse.ArgumentParser(prog="src.cli", description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
