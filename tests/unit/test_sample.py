@@ -215,3 +215,30 @@ def test_spread_win_rate_is_none_when_nothing_was_decided():
 def test_spread_warns_without_a_control():
     rep = spread([_res("pre_x", "b", 1.0)])
     assert "warning" in rep and "control_mean_margin" not in rep
+
+
+def test_labels_are_looked_up_in_the_run_that_has_the_pairs(tmp_path, monkeypatch):
+    """Labels reference pair_ids from an EARLIER run. Defaulting the lookup to
+    the run being created could never work -- that run has no pairs yet -- and
+    it broke `night` at the first stage, before any GPU work started."""
+    from src.cli.pool import _run_with_pairs
+    from src.common.io import Run
+    monkeypatch.setattr("src.common.io.RUNS", tmp_path)
+
+    old = Run.open("r0", root=tmp_path)
+    for i in range(3):
+        old.write("pairs", {"pair_id": f"d0{i}"})
+    old.mark_complete("pairs", n_pairs=3)
+    Run.open("r1", root=tmp_path)          # the new run: no pairs at all
+
+    assert _run_with_pairs(None, {"d00", "d01"}).dir.name == "r0"
+    assert _run_with_pairs("r1", {"d00"}).dir.name == "r1", "explicit still wins"
+
+
+def test_no_run_with_matching_pairs_names_what_is_on_disk(tmp_path, monkeypatch):
+    from src.cli.pool import _run_with_pairs
+    from src.common.io import Run
+    monkeypatch.setattr("src.common.io.RUNS", tmp_path)
+    Run.open("r1", root=tmp_path)
+    with pytest.raises(SystemExit, match="r1"):
+        _run_with_pairs(None, {"nope"})

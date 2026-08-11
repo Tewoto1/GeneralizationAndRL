@@ -50,7 +50,7 @@ def hf_generator(model_cfg: dict, role: str = "answer") -> tuple[Generate, dict]
     else:
         model = load_base_model(name, dtype=model_cfg.get("dtype", "bfloat16"),
                                 load_in_4bit=model_cfg.get("load_in_4bit", True),
-                                device_map=model_cfg.get("device_map", "auto"))
+                                device_map=model_cfg.get("device_map"))
 
     system = model_cfg.get("system")  # None => no system turn. See chat.py.
     base = {k: v for k, v in model_cfg.get("gen", {}).items() if not isinstance(v, dict)}

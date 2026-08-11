@@ -41,12 +41,19 @@ def cmd_constitute(a) -> None:
                  f"{a.min_labels}. Run `./run.sh label <run>` first — the model "
                  f"cannot generalise preferences it has not been shown.")
 
-    src = Run.open(a.labels_from or a.run)
+    # Where do the labelled pairs live? Defaulting to the current run was wrong
+    # by construction: labels reference pair_ids from an EARLIER run, and the
+    # run being created has no pairs yet, so the default could never work. The
+    # labels name the pair_ids they need, so look for them.
+    want = {l["pair_id"] for l in labels}
+    src = _run_with_pairs(a.labels_from, want)
     pairs = {p["pair_id"]: p for p in src.read("pairs")}
     examples = S.format_examples(labels, pairs, writer["example_block"], a.n_examples)
     if not examples:
-        sys.exit(f"[constitute] labels exist but none match pairs in run "
-                 f"'{a.labels_from or a.run}'. Pass --labels-from <run>.")
+        sys.exit(f"[constitute] no pairs in '{src.dir.name}' match any label. "
+                 f"Labels reference {sorted(want)[:5]}...")
+    print(c(f"[constitute] {len(want & set(pairs))} labelled pairs from "
+            f"run '{src.dir.name}'", "grey"))
 
     prompt = cfg_mod.render(writer["template"], {"examples": examples})
     generate, prov = generator(cfg, a.stub, role="answer")
@@ -81,6 +88,31 @@ def cmd_constitute(a) -> None:
                  "constitutions/*.json — read it before re-running.")
     run.mark_complete("constitute", n=a.n, n_ok=n_ok, n_examples=len(labels))
     _push(a, run, f"{n_ok} constitutions")
+
+
+def _run_with_pairs(explicit: str | None, want: set) -> Run:
+    """The run holding the pairs the labels refer to.
+
+    Explicit `--labels-from` wins. Otherwise every run directory is searched and
+    the one covering the most labelled pair_ids is used, because that is a fact
+    on disk rather than a guess.
+    """
+    from ..common.io import RUNS
+    if explicit:
+        return Run.open(explicit)
+
+    best, best_n = None, 0
+    for f in sorted(RUNS.glob("*/pairs.jsonl")):
+        r = Run.open(f.parent.name)
+        n = len(want & {p["pair_id"] for p in r.read("pairs")})
+        if n > best_n:
+            best, best_n = r, n
+    if best is None:
+        have = sorted(d.name for d in RUNS.glob("*") if d.is_dir())
+        sys.exit(f"[constitute] no run contains the pairs these labels refer to. "
+                 f"Runs on disk: {have or '(none)'}. If the labelled run is only "
+                 f"on the Hub, `./run.sh pull <run>` first, or pass --labels-from.")
+    return best
 
 
 def cmd_sample(a) -> None:

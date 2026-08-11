@@ -97,6 +97,15 @@ Layout is `src/cli/`, `src/common/`, `src/judge/`, `src/sample.py`, `configs/`,
 it is holding two concerns.
 A new file needs an explicit reason, and in a borderline case, a question first.
 
+**A patch-in is not a feature.** A guard, retry, or workaround that exists only
+because a config was wrong does not belong in a module beside the code that does
+the work. Fix the config, and the guard is dead code that a future reader has to
+decide whether to trust. A `check_no_offload()` was added to `model.py` after an
+OOM; pinning `device_map` made offloading impossible, so the function was
+guarding against a state that could no longer occur. If a workaround genuinely
+must survive, it goes in the config as a value with a `_note`, not in `src/` as
+a function.
+
 **Code budget is a real constraint.** Before adding a block, ask what it
 duplicates. Two sources of truth for one default is a defect even when both are
 currently correct.
@@ -167,8 +176,8 @@ human-authored one without being asked.
   inside the package that owned them, twice, after being told where they go.
 - `device_map="auto"` does not fail when a model nearly fits. It strands
   modules on CPU and copies them back every forward, which reads as "the GPU is
-  slow" and eventually OOMs mid-generation trying to land one. Pin the device;
-  `model.check_no_offload` now raises at load time instead.
+  slow" and eventually OOMs mid-generation trying to land one. An explicit
+  single-device map leaves it nowhere to offload to, so loading fails instead.
 - A config comment asserted "VRAM is not the constraint" and a 24 GB card then
   OOMed on it. A `_note` that states a fact is a claim, and a wrong one costs
   the next reader the same hour it cost this time.
