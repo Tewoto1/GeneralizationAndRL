@@ -2,14 +2,16 @@
   "_role": "Model defaults. One place. Env vars MODEL / ADAPTER override without editing.",
   "name": "Qwen/Qwen2.5-7B-Instruct",
   "dtype": "bfloat16",
-  "load_in_4bit": false,
-  "device_map": "auto",
+  "load_in_4bit": true,
+  "device_map": {
+    "": 0
+  },
   "adapter_path": null,
   "_system_policy": "null = no system turn (see src/common/chat.py). NEVER change this to the template default without recording it: an injected 'You are Qwen, a helpful assistant' contaminates every judgment.",
   "system": null,
   "_gen_note": [
     "Per-role generation profiles. src/judge/judge.py:hf_generator merges `gen` with `gen[role]`, role being 'answer' (cmd_pairs) or 'judge' (cmd_judge).",
-    "WHY THE CAPS ARE GENEROUS. max_new_tokens is a CEILING, not a target \u2014 generation stops at EOS, so a cap only costs anything on the runs where it actually binds. VRAM is not the constraint either: KV cache here is ~56 KB/token, so even 4000 tokens x 3 sequences is under 0.7 GB on a 24 GB card. The only real reason for a cap is to stop a model that has fallen into a repetition loop from generating forever. So set it well above what the task needs and let EOS do the work. 900 was an arbitrary number that silently truncated most judgments mid-STEP-3, and a truncated completion has no verdict block, so it was recorded as `unparseable` \u2014 pointing at the parser instead of at the cap.",
+    "WHY THE CAPS ARE GENEROUS. max_new_tokens is a CEILING, not a target -- generation stops at EOS, so a cap costs wall-clock only on runs where it binds. In r0 answers ran ~550 tokens and judgments ~1100-2000, so neither cap is expected to bind. What a cap does NOT buy you is VRAM headroom: an earlier version of this note claimed VRAM was not a constraint, and then a 24 GB card OOMed. The KV cache is real (~56 KB/token, so 2 sequences of 12k tokens is ~1.4 GB) but it is not what fills the card -- the weights are. See _4bit_note. A cap exists to stop a repetition loop running forever, nothing else.",
     "WHY THE ANSWER CAP IS ALSO GENEROUS. Capping answers low looks like a free speedup and is not: a truncated answer is not a concise answer, it is a broken one, and the judge would then score `completeness` against an artefact this harness created. Brevity is one of the things being measured, so it has to be the model's choice, never the harness's."
   ],
   "gen": {
@@ -23,5 +25,7 @@
       "_temperature_note": "Cooler than the answer role. A judge sampling at 0.7 cannot be self-consistent or order-invariant, and those are two of the six validation gates. Still above 0 so k_samples measures something."
     },
     "_cap_note": "Generous on purpose. max_new_tokens is a CEILING and generation stops at EOS, so a cap only costs wall-clock on the runs where it binds. In r0 answers ran ~550 tokens and judgments ~1100-2000, so neither of these is expected to bind at all -- they exist only to stop a repetition loop running forever."
-  }
+  },
+  "_device_map_note": "Everything on GPU 0, deliberately NOT 'auto'. 'auto' does not fail when a model is slightly too large -- it strands modules on CPU and copies them back each forward. On a 24 GB card with bf16 weights that stranded the lm_head (152064 x 3584 x 2 B = 1.02 GiB) and OOMed mid-generation trying to move it. Pinning to one device makes the failure happen at load time instead, where it is one line to read. src/common/model.py:check_no_offload raises if anything lands on cpu or disk.",
+  "_4bit_note": "VRAM arithmetic for Qwen2.5-7B on 24 GB: bf16 weights are 7.62e9 x 2 B = 15.2 GB, plus ~1.4 GB KV cache for 2 sequences of ~12k tokens, plus activations and allocator fragmentation -- it fits on paper and does not in practice. 4-bit NF4 weights are ~4.3 GB, which leaves the card with room to spare. Set false only on a 40 GB+ card, and check the pilot s/pair before assuming it is faster."
 }

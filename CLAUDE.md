@@ -1,5 +1,30 @@
 # Working agreements for this repo
 
+**What this project is now.** Two possible results, either of which is the
+point:
+
+1. **Trace generalization in the internals.** When a model forms a principle,
+   does it become a readable direction in its activations — where, when, and
+   is it causal.
+2. **A self-play loop that cannot fool itself.** The model generates variants
+   of its own answers, judges them, finds the edge cases where its criteria
+   break, and keeps improving with **minimal human input**. Human labels are
+   the bootstrap and the audit, not the fuel.
+
+(2) is why every gate here exists. A self-improving loop with no external check
+amplifies whatever its judge is biased toward, so the design question is not
+"does it improve" but "can it tell when it is improving". Both presentation
+orders, the clear/boundary split, the human-label gate, the controls that must
+come out clear — all of it is there so the loop cannot lie to itself about its
+own progress. Do not weaken a check to make a number look better.
+
+(1) is the instrument for (2): a principle that shows up as a direction can be
+watched rather than only scored. See `README.md`.
+
+The reward-hacking / inference-time-misalignment work this repo inherited its
+infrastructure from is **not** the current focus. It survives only in the
+predecessor repo's history and in the failure log at the bottom of this file.
+
 ## How to report edits (Yuzheng's standing preference)
 
 When making any edit, **describe the exact setting and the method of implementation** —
@@ -15,10 +40,10 @@ Every edit report must state:
    signatures, the substitution syntax.
 4. **Then** results/verification.
 
-"Added a validation gate" is not sufficient; "`src/cli.py:cmd_validate` calls
+"Added a validation gate" is not sufficient; "`src/cli/score.py:cmd_validate` calls
 `judge.validate.report(results, judgments, labels, gates)`, writes
 `runs/<run>/validation.json`, and writes `validate.complete` only when
-`rep['passed']`; `cmd_survey` will refuse to start without that marker" is.
+`rep['passed']`; `cmd_spread` and every later stage read it, and `judge` refuses to start without a completed `pairs` stage" is.
 
 Rationale: the user is not a heavy SWE and needs to be able to parse and audit
 what changed. A description-only report hides wrong implementation choices.
@@ -67,7 +92,9 @@ config file, grep for something that loads it.
 ## File discipline
 
 **Default: do not add new files.** Fold into the module that owns the concern.
-Layout is `src/common/`, `src/judge/`, `configs/`, `prompts/`, `tests/`, `docs/`.
+Layout is `src/cli/`, `src/common/`, `src/judge/`, `src/sample.py`, `configs/`,
+`prompts/`, `tests/`, `docs/`. No file over ~300 lines; if one grows past that,
+it is holding two concerns.
 A new file needs an explicit reason, and in a borderline case, a question first.
 
 **Code budget is a real constraint.** Before adding a block, ask what it
@@ -138,3 +165,10 @@ human-authored one without being asked.
   consuming code before committing.
 - Prompts, environments and configs were created at the repo root instead of
   inside the package that owned them, twice, after being told where they go.
+- `device_map="auto"` does not fail when a model nearly fits. It strands
+  modules on CPU and copies them back every forward, which reads as "the GPU is
+  slow" and eventually OOMs mid-generation trying to land one. Pin the device;
+  `model.check_no_offload` now raises at load time instead.
+- A config comment asserted "VRAM is not the constraint" and a 24 GB card then
+  OOMed on it. A `_note` that states a fact is a claim, and a wrong one costs
+  the next reader the same hour it cost this time.

@@ -6,6 +6,21 @@ the thing being built for real; (2) generalization-as-a-direction — now the
 
 ---
 
+## 0. What would count as a result
+
+Either of these, independently:
+
+1. **A full internal trace of generalization** — a principle the model forms
+   becomes a direction that can be located, watched forming, and ablated.
+2. **A self-play loop that cannot fool itself** — the model proposes variants
+   of its own answers, judges them, discovers its own edge cases, and improves
+   with minimal human input.
+
+Human labels are the bootstrap and the audit for (2), not its fuel. The whole
+difficulty is that a loop scoring its own work has no external referent, so
+every gate in the repo exists to answer "can it tell when it is improving"
+rather than "did the number go up".
+
 ## 1. The thing being built
 
 A training loop where the model writes and maintains its own constitution:
@@ -129,51 +144,61 @@ itself is useful regardless.
    separate experiments on the same artifact; never report the loop end-to-end
    as one result.
 
-## 6. Repo plan
+## 6. Repo plan — superseded by what was built
 
-### Keep
-`Training/RL.py` + config JSONs (arms as config entries), `Model/chat.py`
-(prompt provenance now doubly critical — constitution-in-context is a
-condition), `checkpoint.py`, `LogUtils/`, `Vast_scripts_stage0/`, HF sync,
-the paraphrase-family discipline (probe trained on variants {a,b}, tested on
-{c} — applies to principle surface forms).
+The plan below was written before the repo existed. `docs/MECHANICS.md` is the
+authoritative description of what is actually there; this section is kept only
+as the record of what was intended, and where reality diverged.
 
-### Park
-`Environments/`, `Harness/` agentic loop, information-leak prompts. The
-goal-switch/τ apparatus stays on disk, untouched.
+### Built
+`constitute` (model derives criteria from human labels), `sample` (conditioned
+answer pool: drafts, prefills, self-review revisions), `pair`, `judge`,
+`validate`, `spread`, `label`, `peek`, `sync`. The judge harness with a
+six-step protocol and a validation gate. Full stub path, 98 tests, no torch
+required.
 
-### Build (design in JSON, Python interprets — per CLAUDE.md)
-1. **`Constitution/` state files** — the living constitution as versioned JSON:
-   principles, provenance (self-generated | human-amended, which iteration),
-   surface-form variants. The diff between versions *is* the experiment record.
-2. **Survey + judge stage** — question generation, k-sample self-judging,
-   margin computation. Prompts in `Prompts/`, one runner in the owning module.
-3. **Triage + clustering stage** — margin split; boundary clustering by
-   articulated reason; distilled-question emission as a JSON report for the
-   human. Human answers go back in as constitution amendments.
-4. **DPO arm in `Training/`** — pairs from clear cases; sits beside GRPO under
-   the same config machinery.
-5. **`Internals/`** — `capture.py` (HF forward hooks, residual stream),
-   `vectors.py` (task vector, difference-of-means, LoRA weight-delta direction,
-   cosine reporting across seeds/paraphrases), `probes.py` (per-layer logistic
-   probe, steering eval, held-out-paraphrase AUC). Serves E1–E3.
-6. **Frozen eval battery** — reuse `Prompts/Analysis/` batteries as the
-   drift detector, scored identically every iteration.
+### Not built, on purpose
+Triage/clustering/escalation, any training stage, `src/internals/`. The judge
+is the instrument and everything downstream is a function of it, so it is
+audited first. The activation-capture seam exists (`judge.Capture`) and is
+three lines; it stays unimplemented until there is data worth probing.
 
-### Phases
-- **P0 — no training.** Domain picked; question generation + survey + triage on
-  base Qwen; measure judge consistency and question coverage. Kill criterion:
-  self-judgments unstable across resamples → fix domain/criteria before
-  spending anything.
-- **P1 — one full loop iteration.** Clear-holdout human labels (risk-1 control),
-  DPO on clear, first escalation round with real human (you) answers. Measure:
-  clarity→agreement rate, escalation question quality.
-- **P2 — internals.** E1 (boundary probe vs sampled disagreement) and E2
-  (amendment direction alignment) on the P1 artifacts. E3 rides on P1's
-  cluster bookkeeping.
-- **P3 — iterate the loop 2–3 more rounds.** Drift battery, compression
-  measurement (human questions per resolved case over time — the headline
-  curve if it bends down).
+### Dropped
+The reward-hacking / goal-switch apparatus (`Environments/`, `Harness/`, the
+information-leak prompts, `Training/RL.py`) was deleted rather than parked. It
+lives in the predecessor repo's git history. Keeping it beside the new pipeline
+would have meant two parallel paths to drift apart.
+
+### Where reality diverged from the plan
+
+**P0 said "measure judge consistency before spending anything". Correct, and
+it is the step that produced every finding so far.** Run r0, 25 prompts, 150
+judgments:
+
+- Verdicts split **41 A / 42 B / 67 tie**. Two samples of one model at
+  temperature 0.7 are not a preference pair — 47 of 50 answers were markdown
+  listicles, median within-pair length difference 13%. This is the dead-gradient
+  problem from the predecessor project arriving in a new domain: a group the
+  judge cannot rank has no reward variance and therefore no gradient.
+- The judge agreed with Yuzheng on **5 of 8** pairs both decided, and its single
+  CLEAR pair (margin 1.00) was one he judged the other way, so
+  `clear_agreement` was **0/1**.
+- `length_bias` measured **0.056**. The failure is not a preference for longer
+  answers; it is coverage over commitment, caused by protocol v1 scoring
+  criteria only on supporting evidence. Fixed in protocol v2.
+- His 13 labels tagged tact 7, actionable 4, truth 2, completeness 2, **time
+  0**, with shortness tagged as `tact`. The seed rubric's split between `time`
+  and `tact` was never used; rubric v1 folds them.
+
+**Consequence for the plan.** Risk 1 (clear ≠ correct) was the flagged danger
+and it is confirmed at n=1: the one case the judge was confident about, it was
+wrong. The clear/boundary split cannot be trusted as a training signal yet,
+which is why no training stage exists.
+
+**New work item the plan did not anticipate.** Before triage can mean anything,
+the answer pool has to contain rankable differences at all. That is what
+`configs/variants.json` and the `spread` stage are for, and it is the current
+open question rather than a detail.
 
 ## 7. Literature survey — what shapes the design
 

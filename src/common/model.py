@@ -95,7 +95,41 @@ def load_base_model(name: str, dtype: str = "bfloat16", load_in_4bit: bool = Tru
         device_map=device_map,
         **{_DTYPE_KWARG: torch_dtype},
     )
+    check_no_offload(model)
     return model.eval()
+
+# This is not a functional asset of this module right? Once we get past this issue, this function should be deleted.
+def check_no_offload(model) -> dict:
+    """Fail loudly if any module was placed on CPU or disk.
+
+    `device_map="auto"` does not fail when a model is slightly too big for the
+    card. It silently leaves some modules on CPU and has accelerate copy them
+    across on every forward pass. Two consequences, both bad:
+
+      - Speed: a per-step host-to-device copy of a large module is far slower
+        than the matmul it feeds. This looks like "the GPU is slow", not like a
+        configuration problem.
+      - Memory: the copy needs contiguous free VRAM at the exact moment the
+        forward reaches that module. Qwen2.5-7B's lm_head is
+        152064 x 3584 x 2 bytes = 1.02 GiB, and that is precisely the
+        allocation that failed on a 24 GB card with bf16 weights.
+
+    Failing at load time turns a mid-run OOM thousands of tokens in into an
+    error before any GPU time is spent.
+    """
+    placement = getattr(model, "hf_device_map", None) or {}
+    stranded = {k: v for k, v in placement.items() if v in ("cpu", "disk")}
+    if stranded:
+        names = ", ".join(sorted(stranded)[:5])
+        raise RuntimeError(
+            f"{len(stranded)} module(s) were placed off-GPU ({names}"
+            f"{', ...' if len(stranded) > 5 else ''}). accelerate does this "
+            f"silently when the model does not fit, then copies them back on "
+            f"every forward -- which is both slow and the usual cause of an OOM "
+            f"partway through generation. Either set load_in_4bit true in "
+            f"configs/model.json, or use a card with more VRAM. Do not paper "
+            f"over it with device_map='auto'.")
+    return placement
 
 
 def attach_lora(model, lora_cfg: dict):

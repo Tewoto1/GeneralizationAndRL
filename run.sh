@@ -28,6 +28,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Reduces allocator fragmentation. The OOM that motivated this reported
+# 1.07 GB "reserved by PyTorch but unallocated" while failing a 1.02 GB
+# allocation -- the memory existed, in pieces too small to use.
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+
 PY="${PY:-python3}"
 CMD="${1:-}"; shift || true
 RUN="${1:-}"; [ $# -gt 0 ] && shift || true
