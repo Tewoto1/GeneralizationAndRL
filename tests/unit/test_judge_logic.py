@@ -6,6 +6,8 @@ here in milliseconds instead of after a training run. The predecessor project
 shipped a metric (`hack_rate`) whose column was an exact copy of another column
 for a whole run; a test at this level would have caught it the same afternoon.
 """
+import json
+
 import pytest
 
 from src.judge.judge import PairResult, judge_pair
@@ -214,3 +216,64 @@ def test_preflight_blocks_on_an_injected_system_prompt():
 
 def test_preflight_blocks_when_nothing_was_judged():
     assert not preflight([], [], _CLEAN)["ok"]
+
+
+# ------------------------------------------------------------------ resume ---
+def test_run_done_reports_finished_keys(tmp_path):
+    """`.complete` says whether a stage FINISHED; `done()` says which items it
+    got through. Without the second, a stage that died at item 100 of 150 and
+    was re-run would append 100 duplicates on top of the originals — the same
+    family as resuming on directory existence, which this project has already
+    paid for twice."""
+    from src.common.io import Run
+    r = Run.open("x", root=tmp_path)
+    r.write("answers", {"prompt_id": "d01", "variant": "draft_0"})
+    r.write("answers", {"prompt_id": "d01", "variant": "draft_1"})
+    r.write("answers", {"prompt_id": "d02", "variant": "draft_0"})
+
+    assert r.done("answers", "prompt_id") == {"d01", "d02"}
+    assert r.done("answers", "prompt_id", "variant") == {
+        ("d01", "draft_0"), ("d01", "draft_1"), ("d02", "draft_0")}
+    assert r.done("nothing_here", "prompt_id") == set()
+
+
+# ------------------------------------------------------------------ labels ---
+def test_add_label_survives_a_concurrent_writer(tmp_path):
+    """THE bug this is here for. add_label used to read the whole JSON file,
+    append in memory, and write it back. A second process that read the file
+    and wrote later destroyed everything written in between — nine hand-made
+    labels, the most expensive artefact in the project, gone silently.
+
+    Appending one line cannot lose a line that is already on disk, whatever
+    else is writing."""
+    from src.judge.validate import add_label, load_labels
+    p = tmp_path / "labels.json"
+    p.write_text(json.dumps({"labels": [
+        {"pair_id": "d01", "verdict": "a", "reasoning": "mine"}]}))
+
+    add_label(p, {"pair_id": "d02", "verdict": "b", "reasoning": "during"})
+    # Another process rewrites the .json wholesale, unaware of the new label.
+    p.write_text(json.dumps({"labels": [
+        {"pair_id": "d01", "verdict": "a", "reasoning": "mine"},
+        {"pair_id": "d99", "verdict": "a", "reasoning": "theirs"}]}))
+
+    got = load_labels(p)
+    assert set(got) == {"d01", "d02", "d99"}, "a concurrent write lost a label"
+    assert got["d02"]["reasoning"] == "during"
+
+
+def test_relabelling_a_pair_overrides_rather_than_duplicating(tmp_path):
+    from src.judge.validate import add_label, load_labels
+    p = tmp_path / "labels.json"
+    add_label(p, {"pair_id": "d01", "verdict": "a", "reasoning": "first"})
+    add_label(p, {"pair_id": "d01", "verdict": "b", "reasoning": "changed my mind"})
+    got = load_labels(p)
+    assert len(got) == 1 and got["d01"]["verdict"] == "b"
+
+
+def test_labels_json_alone_still_loads(tmp_path):
+    """Existing hand-written label files keep working."""
+    from src.judge.validate import load_labels
+    p = tmp_path / "labels.json"
+    p.write_text(json.dumps({"labels": [{"pair_id": "d01", "verdict": "a"}]}))
+    assert set(load_labels(p)) == {"d01"}

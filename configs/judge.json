@@ -1,28 +1,24 @@
 {
   "_role": "Judge harness settings. Numbers downstream inherits these.",
-
-  "rubric": "prompts/judge/rubric_seed.json",
+  "rubric": "prompts/judge/rubric_v1.json",
   "protocol": "prompts/judge/judge_protocol.json",
-
-  "k_samples": 3,
-  "_k_note": "Judgments per (pair, order). Total forward passes per pair = 2*k, because both orders are always judged.",
-
+  "k_samples": 2,
+  "_k_note": "Judgments per (pair, order). Total forward passes per pair = 2*k, because both orders are always judged. Dropped 3->2 when the pool grew: with ~6 variant-pairs per prompt the pair count is 6x r0's, and judging is the whole cost. k=2 still gives a within-order self-consistency measurement, just a coarser one.",
   "swap_orders": true,
   "_swap_note": "Both AB and BA order are judged, in order to debias the model's judgement from input order.",
-
   "margin": {
     "clear_min": 0.7,
     "_clear_note": "net_margin = |n_A - n_B| / n_total across all 2*k judgments. >= clear_min AND swap_consistent => clear. Everything else => boundary. Threshold is a guess until validate.py calibrates it against docs/human_label."
   },
-
   "validate": {
     "labels": "docs/human_label/labels.json",
     "gates": {
-      "swap_invariance_min": 0.90,
-      "self_consistency_min": 0.70,
+      "swap_invariance_min": 0.9,
+      "self_consistency_min": 0.7,
       "clear_agreement_min": 0.85,
-      "length_bias_max": 0.30
+      "length_bias_max": 0.3
     },
     "_gates_note": "src/cli.py survey refuses to run unless the current rubric version has a validation report passing these. A broken instrument must not be allowed to produce months of data."
-  }
+  },
+  "_rubric_note": "v0_seed (prompts/judge/rubric_seed.json) is kept unedited so the hand-written and label-derived constitutions can be run against each other as two arms."
 }

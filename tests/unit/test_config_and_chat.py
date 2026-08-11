@@ -92,7 +92,7 @@ def test_real_configs_load_and_render():
 def test_domain_prompts_are_well_formed():
     """Unique ids, every prompt annotated, and enough controls to detect a noisy
     judge. `trap` and `tension` are design annotations, never shown to the
-    model — cmd_pairs reads only `text` — so this checks the design record is
+    model — cmd_sample reads only `text` — so this checks the design record is
     complete rather than checking anything the model sees."""
     prompts = C.load("configs/domains/honesty_tact.json")["prompts"]
     ids = [p["id"] for p in prompts]
@@ -179,3 +179,19 @@ def test_template_default_is_reported_for_the_manifest():
     prov = chat_provenance(FakeTok(), None)
     assert prov["system_policy"] == "none"
     assert "helpful assistant" in prov["template_would_inject"]
+
+
+def test_prefill_seeds_the_assistant_turn():
+    """The prefill must land AFTER the generation prompt, so the model
+    continues from it rather than being shown it as user text."""
+    from src.common.chat import render_chat
+    out = render_chat(FakeTok(), [{"role": "user", "content": "hi"}],
+                      system=None, prefill="The short answer is")
+    assert out.endswith("The short answer is")
+    assert out.index("assistant") < out.index("The short answer is")
+
+
+def test_prefill_is_optional_and_changes_nothing_when_absent():
+    from src.common.chat import render_chat
+    msgs = [{"role": "user", "content": "hi"}]
+    assert render_chat(FakeTok(), msgs) == render_chat(FakeTok(), msgs, prefill=None)

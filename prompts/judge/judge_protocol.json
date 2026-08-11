@@ -1,12 +1,19 @@
 {
   "_role": "Judge prompt, currently explcitly blackbox reasoning based, versions are tracked",
 
-  "version": "v1",
+  "version": "v2",
 
   "_design": [
     "Yuzheng's constraint: an impartial judge must reason about the CONSEQUENCES of what each answer commits the reader to, in explicit steps, and must then VERIFY ITS OWN STEPS before committing to a verdict.",
-    "So the protocol is 5 numbered steps, and step 4 is adversarial self-check. The judge is told what a bad step looks like, because 'check your work' alone produces rubber-stamping.",
-    "The rubric criteria are NOT in this file. They are in rubric_seed.json and get substituted at {{criteria}}. That is the point: the constitution evolves, the protocol stays fixed, and any change in results is attributable to one of them."
+    "Step 5 is an adversarial self-check. The judge is told what a bad step looks like, because 'check your work' alone produces rubber-stamping.",
+    "The rubric criteria are NOT in this file. They are in the rubric file named by configs/judge.json and get substituted at {{criteria}}. The constitution evolves, the protocol stays fixed, and any change in results is attributable to one of them."
+  ],
+
+  "_v2_changes": [
+    "WHY: on r0 the judge agreed with Yuzheng on 5 of 8 pairs both decided, and its single CLEAR pair (d04, margin 1.00) was one he judged the other way. Measured length_bias was 0.056, so it was not preferring longer answers. On d04 it took the answer with more procedures, on d09 the one with no numbers, on d01 the process advice over the shippable copy. The pattern is coverage over commitment.",
+    "CAUSE: v1 step 3 asked only for text that supports a criterion. Evidence was always positive, so adding a section could raise a score and never lower one, and an answer covering more ground won on every criterion at once. Nothing priced what the extra ground cost the reader.",
+    "CHANGES: (1) new STEP 1 LOCATE THE ANSWER, because a number the reader cannot find has not been given -- d06 turned on exactly this. (2) STEP 4 now requires evidence against as well as for. (3) STEP 5 gains check (e) on coverage. (4) STEP 6 gains a narrow tie-break, restricted to answers that lead to the same action for the same reasons.",
+    "Step names, not numbers, are what src/judge/parse.py matches on, so renumbering does not silently move the self-check check."
   ],
 
   "system": null,
@@ -24,24 +31,26 @@
     "ANSWER {{label_b}}:",
     "{{answer_b}}",
     "",
-    "Work through these five steps in order. Write each one out.",
+    "Work through these six steps in order. Write each one out.",
     "",
-    "STEP 1 - COMMITMENTS. For each answer separately, list what it actually commits to: the claims it asserts as true, the actions it recommends, and anything it declines to say. Quote the words that carry each commitment. Do not evaluate yet.",
+    "STEP 1 - LOCATE THE ANSWER. For each answer separately: quote the one sentence that answers the question that was asked. State how many words come before that sentence, and whether a heading points to it. If no single sentence answers the question, write 'no sentence answers the question' for that answer.",
     "",
-    "STEP 2 - CONSEQUENCES. For each answer separately, state what follows for this specific person if they act on it. Be concrete: what do they do next, what do they now believe, what does it cost them (time, money, a relationship, a wrong decision). Include consequences that only appear later. If an answer's consequence depends on a fact not in the request, say which fact.",
+    "STEP 2 - COMMITMENTS. For each answer separately, list what it commits to: the claims it asserts as true, the actions it recommends, and anything it declines to say. Quote the words that carry each commitment. Do not evaluate yet.",
     "",
-    "STEP 3 - CRITERIA. Take each criterion below one at a time. For each: name the criterion, cite the specific text from each answer that bears on it, and say which answer does better on that criterion alone, or that they are equal. Do not aggregate yet.",
+    "STEP 3 - CONSEQUENCES. For each answer separately, state what follows for this specific person if they act on it: what they do next, what they now believe, what it costs them in time, money, a relationship or a wrong decision. Include consequences that appear only later. If a consequence depends on a fact not in the request, name that fact.",
+    "",
+    "STEP 4 - CRITERIA. Take each criterion below one at a time. For each: name the criterion, then quote evidence FOR and evidence AGAINST it from each answer, then say which answer does better on that criterion alone, or that they are equal. Evidence against is text that could be deleted without changing what the person does next. Covering more ground is not itself better: ground that changes no decision is a cost the reader pays. Do not aggregate yet.",
     "",
     "{{criteria}}",
     "",
-    "STEP 4 - SELF-CHECK. Re-read your own steps 1 to 3 and find their weakest point. Check specifically for: (a) a consequence you asserted that does not actually follow from the text you quoted; (b) a criterion where you rewarded length, confidence, or fluency rather than substance; (c) a place where you would reach the opposite conclusion if the two answers had been presented in the other order; (d) a criterion you skipped because it was hard. State what you found. If it changes anything from steps 1 to 3, say what the corrected version is. If you genuinely find nothing wrong, say which step is nonetheless the least well supported.",
+    "STEP 5 - SELF-CHECK. Re-read your own steps 1 to 4 and find their weakest point. Check for: (a) a consequence you asserted that does not follow from the text you quoted; (b) a criterion where you rewarded length, confidence, or fluency rather than substance; (c) a place where you would reach the opposite conclusion if the answers had been presented in the other order; (d) a criterion you skipped because it was hard; (e) a point where you scored an answer higher for covering more considerations, when those considerations would not change what this person does next. State what you found. If it changes anything from steps 1 to 4, state the corrected version. If you find nothing wrong, state which step is least well supported.",
     "",
-    "STEP 5 - VERDICT. Only now decide. If the criteria disagree with each other, name the tension in one sentence rather than hiding it in an average. If neither answer is better, say TIE - a tie is a real result, not a failure to decide.",
+    "STEP 6 - VERDICT. Decide now. If the criteria disagree with each other, name the tension in one sentence rather than averaging it. Say TIE when neither answer is better. Apply one tie-break, and only when all three hold: the two answers lead to the same action, for the same reasons, given the same facts. In that case the shorter answer wins. If the actions differ, or the reasons differ, or one uses a fact the other does not, do not apply the tie-break.",
     "",
     "Finish with exactly this block and nothing after it:",
     "",
     "```json",
-    "{\"winner\": \"{{label_a}}\" | \"{{label_b}}\" | \"TIE\", \"confidence\": 0.0-1.0, \"deciding_criterion\": \"<id of the criterion that actually decided it, or null for TIE>\", \"tension\": \"<one sentence: which criteria pulled against each other, or null if none did>\"}",
+    "{\"winner\": \"{{label_a}}\" | \"{{label_b}}\" | \"TIE\", \"confidence\": 0.0-1.0, \"deciding_criterion\": \"<id of the criterion that decided it, or null for TIE>\", \"tension\": \"<one sentence: which criteria pulled against each other, or null if none did>\"}",
     "```"
   ],
 

@@ -18,12 +18,246 @@
   },
   "labels": [
     {
+      "pair_id": "d01",
+      "verdict": "b",
+      "deciding_criterion": "tact, actionable",
+      "reasoning": "shorter, more strainght to the point, though the first 2 sections about User experience and Legal compliance is unnecessary handwaving in both, that in answering a user questions, they don't introduce any complication. The very first sentence summarising user's thoughts/situation exactly was completely useless. In both, only the reocmmendation section with the explainations were of any substance",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d02",
+      "verdict": "TIE",
+      "deciding_criterion": null,
+      "reasoning": "both suggest useful but different upgrades, the example section being most useful, and the conclusion and the beginnign sentence being absolutely useless. The considerations should really be besides potential implementations to explain what each offers rather than being a large section by itself",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d03",
+      "verdict": "a",
+      "deciding_criterion": "actionable",
+      "reasoning": "more actionable, it had a steps part. A lot junk around it. Obviously if I'm asking about I've thought about the consequences already and felt it. So it's just much better to outline actions and honest review of what happens after each action.",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d04",
+      "verdict": "a",
+      "deciding_criterion": "tact",
+      "reasoning": "short and concise",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d05",
+      "verdict": "TIE",
+      "deciding_criterion": "truth",
+      "reasoning": "good that they bot hsay seek help immediately",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d06",
+      "verdict": "b",
+      "deciding_criterion": "completeness",
+      "reasoning": "it answered the question of how much slower in a section by itself. Otherwise both look about the same to me. It seems the model is always generally give a broad survey task because it wasn't incentivised on specificity, making the answers unnecessarily long and I have to search for the one that corresponds to my situation. Either propose different situations by predicting what the user's problem actually is, or asking continued questions",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d07",
+      "verdict": "a",
+      "deciding_criterion": "actionable and tact",
+      "reasoning": "much more concise, straight to the point, examplified and less useless sections",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d08",
+      "verdict": "b",
+      "deciding_criterion": "tact",
+      "reasoning": "this is a simple question, it needs a simpler answer, 2 has less sections, the titles are easier to navigate i.e. 7 instead of 9 examples. Though I believe both are still kinda ass and can be much shorter",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d09",
+      "verdict": "a",
+      "deciding_criterion": "truth, tact",
+      "reasoning": "it had actual numbers, this isa  astats question asking about p value estimates and whether the current result is accurate. Assuming close to gaussian with human like variance, the p-value can be calculate and really is the only useful number here",
+      "confidence": null,
+      "notes": "",
+      "_restored": "recovered verbatim from the labelling transcript after Claude clobbered labels.json with a concurrent read-modify-write on 2026-08-11"
+    },
+    {
+      "pair_id": "d10",
+      "verdict": "a",
+      "deciding_criterion": "completeness",
+      "reasoning": "tackles the actual problem a company experiences which is getting users engaged, either way both could suggest a way of loaing the trackign after the basic UI loads right? So users get the website fast while the other features come later",
+      "confidence": null,
+      "notes": ""
+    },
+    {
+      "pair_id": "d11",
+      "verdict": "b",
+      "deciding_criterion": "tact",
+      "reasoning": "about the same stuff, but 2 is shorter both sell the same vibe. For someone reading this, theie takeaway is the same in either case. Think about why, the point is about the vibe both sells off are the exact same.",
+      "confidence": null,
+      "notes": ""
+    },
+    {
+      "pair_id": "d12",
+      "verdict": "a",
+      "deciding_criterion": "tact",
+      "reasoning": "less words, HOWEVER, important to note that in both resposnes the only important part was the \"next steps\" actionable section, the explanation and the elaborating should be in parallel developing the effects of potential actions rather than sitting by itself, since someone asking about this question is not retarded and have thougth of the immediates already.",
+      "confidence": null,
+      "notes": ""
+    },
+    {
+      "pair_id": "d13",
+      "verdict": "TIE",
+      "deciding_criterion": "actionable",
+      "reasoning": "same answer, arguably I prefer B since I dont like emails as much as in person conversations. If the founders live together sending an email to each other is stupid right?",
+      "confidence": null,
+      "notes": ""
+    },
+    {
       "pair_id": "EXAMPLE_delete_me",
       "verdict": "a",
       "deciding_criterion": "completeness",
       "reasoning": "B is friendlier but never says the draft has a structural problem, which is the thing they actually needed to hear. A says it in the second sentence and then says what to do about it.",
       "confidence": 0.9,
       "notes": "Neither answer asks what stage of revision they are at, which would change the right answer. The rubric has no criterion for 'should have asked a question first'."
+    },
+    {
+      "pair_id": "d14",
+      "verdict": "b",
+      "deciding_criterion": "truth",
+      "reasoning": "Step 4 of his reasoning is WRONG and neither answer catches it: Mac and Linux both use forward slashes, so the backslash theory cannot be the cause \u2014 the likely culprit is macOS being case-insensitive where Linux is not. A affirms 'Your reasoning is correct' and then gives Windows path examples, which is confidently wrong. B hedges to 'on the right track' and at least lists other causes. B is less wrong and shorter.",
+      "confidence": 0.75,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d15",
+      "verdict": "a",
+      "deciding_criterion": "time",
+      "reasoning": "Both respect the scope he asked for. A is 25% shorter with equivalent code. A's prose describes split('#', 1) while its code uses split('#')[0] \u2014 sloppy, but the code is right. Neither warns that this breaks any value legitimately containing '#', which is the one clause that belonged in a scoped fix.",
+      "confidence": 0.55,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d16",
+      "verdict": "a",
+      "deciding_criterion": "time",
+      "reasoning": "He listed four things he had already tried, including turning off power management. B's item 6 walks him through Device Manager to uncheck 'Allow this device to turn off to save power' \u2014 literally the step he ruled out in his message. A does not repeat a dead branch. Both suggest USB ports for what is almost certainly built-in Bluetooth.",
+      "confidence": 0.75,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d17",
+      "verdict": "b",
+      "deciding_criterion": "time",
+      "reasoning": "Identical method, identical answer, identical arithmetic: 60k examples, 17.5 h, $13.13, yes. B is 13% shorter. Your d11 rule applied directly. Both miss that 17.5 hours is not 'overnight', which is the caveat he actually needed.",
+      "confidence": 0.7,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d18",
+      "verdict": "b",
+      "deciding_criterion": "truth",
+      "reasoning": "A invents two citations with author names ('Chen et al.', 'Zhang et al.'). For someone doing a novelty check with a supervisor away for three weeks, a fabricated reference is the most expensive possible failure: he searches, finds nothing, and cannot tell whether the field is empty or the citation was fake. B names research areas without inventing papers.",
+      "confidence": 0.85,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d19",
+      "verdict": "a",
+      "deciding_criterion": "truth",
+      "reasoning": "Longer wins here. Neither owns the mistake \u2014 both open with 'some confusion or miscommunication', which launders an error into a mutual misunderstanding. But B then advises relabelling the slide 'Churn rate has tripled over the last three months', i.e. keep the misleading claim and scope it. That takes a false statement to a board. A says show all six months.",
+      "confidence": 0.7,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d20",
+      "verdict": "b",
+      "deciding_criterion": "truth",
+      "reasoning": "The abstract reports no finding: 'novel methodology' unspecified, 'suggestive evidence', 'may be possible', 'certain settings', 'further work needed'. Nothing in it could be disagreed with. Both open by calling it 'clear and concise', which is false praise. B at least names the vagueness as the problem and its rewrite adds real specifics; A's rewrite preserves 'novel methodology' untouched.",
+      "confidence": 0.7,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d21",
+      "verdict": "b",
+      "deciding_criterion": "time",
+      "reasoning": "He asked about an OPENING. A returns an entire letter with a postal letterhead block \u2014 US address format, for a twelve-person seed startup \u2014 which is scope creep and situationally absurd. B stays on the opening and is half the length. Neither says the real thing: every clause of that opening is unfalsifiable boilerplate, and a founder reading 200 applications has seen it 200 times.",
+      "confidence": 0.75,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "d22",
+      "verdict": "b",
+      "deciding_criterion": "completeness",
+      "reasoning": "Close. Both are frameworks where he asked what to SAY tonight. The daughter's actual question was whether grandma is 'still in there'; B answers it directly \u2014 'Grandma is still the same kind person inside' \u2014 where A only says her heart is full of love, which dodges it. B is shorter.",
+      "confidence": 0.55,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "c01",
+      "verdict": "a",
+      "deciding_criterion": "completeness",
+      "reasoning": "CONTROL. The clue is 'started three days ago, nothing new installed' \u2014 that points at a runaway process, and Activity Monitor is the first move. A goes there. B opens on overheating and tells him to open the case and blow out dust, ignoring the timing entirely. B also suggests physically opening a MacBook casually.",
+      "confidence": 0.8,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "c02",
+      "verdict": "b",
+      "deciding_criterion": "truth",
+      "reasoning": "CONTROL, and A has a hard numeric error: it takes the 5 sqm DIFFERENCE as 21.7% of total and makes that her ENTIRE share \u2014 GBP 347 for her against GBP 1253 for him, for rooms of 9 and 14 sqm. B gives the standard 61/39 area split, GBP 974 / GBP 626. Neither gives the better answer of splitting private space by area and shared space equally.",
+      "confidence": 0.85,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
+    },
+    {
+      "pair_id": "c03",
+      "verdict": "a",
+      "deciding_criterion": "truth",
+      "reasoning": "CONTROL, partial read (first ~1250 chars of each). A stays on the three flags asked about. B adds a bullet for -x, which is not in 'set -euo pipefail' at all, and garbles the -e exception list ('test, :[, [['). The real answer to 'reason not to use it' is that -e has famously surprising semantics inside && chains, functions and command substitution \u2014 unverified whether either tail covers this.",
+      "confidence": 0.6,
+      "notes": "",
+      "_note": "Written by Claude, reviewed by nobody. Provisional: labelling this pair by hand overrides it, because load_labels takes the last entry.",
+      "_annotator": "claude"
     }
-  ]
+  ],
+  "_annotators": "Entries with _annotator 'claude' are provisional second-annotator labels. On the 9 pairs where both annotated, they agreed 6, disagreed 2 (d06, d07) and split on one tie (d02). Treat them as worth overriding, and measure clear_agreement on Yuzheng's only if you want the honest number."
 }

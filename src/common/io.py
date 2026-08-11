@@ -191,6 +191,23 @@ class Run:
     def count(self, stream: str) -> int:
         return sum(1 for _ in self.read(stream))
 
+    def done(self, stream: str, *keys: str) -> set:
+        """Keys already present in `stream`, for skipping finished work.
+
+        The `.complete` marker says whether a stage finished; it does NOT say
+        which items it got through. Without this, a stage that died at item 100
+        of 150 and was re-run would append 100 duplicates on top of the
+        originals — silently doubling the pool and making every downstream
+        count wrong. That is the same family of bug as resuming on directory
+        existence, and on a multi-hour run an interruption is likely, not
+        exotic.
+
+        Single key returns a set of values; several return a set of tuples.
+        """
+        if len(keys) == 1:
+            return {r[keys[0]] for r in self.read(stream) if keys[0] in r}
+        return {tuple(r.get(k) for k in keys) for r in self.read(stream)}
+
     # -- stage completion -----------------------------------------------------
     def is_complete(self, stage: str) -> bool:
         return (self.dir / f"{stage}.complete").exists()

@@ -89,22 +89,36 @@ def _cut_probe_turn(text: str, tokenizer) -> str | None:
 
 
 def render_chat(tokenizer, messages: list[dict], system: str | None = None,
-                add_generation_prompt: bool = True) -> str:
+                add_generation_prompt: bool = True, prefill: str | None = None) -> str:
     """Render `messages` to a prompt string with an explicit system policy.
 
     `messages` is the conversation WITHOUT a system turn; `system` decides
     whether one is added, and which.
+
+    `prefill` seeds the start of the assistant's turn: the text is appended
+    after the generation prompt and the model continues from it. This is how
+    the sampler reaches output modes that RLHF made improbable -- temperature
+    raises entropy over tokens, not over strategies, so getting a different
+    KIND of answer needs conditioning rather than hotter sampling.
+
+    Note that the prefill is part of the prompt, not part of the completion:
+    `hf_generator` decodes only the newly generated tokens, so callers must
+    prepend the prefill themselves if they want the whole answer. `sample.py`
+    does exactly that.
     """
     messages = list(messages)
 
+    tail = prefill or ""
+
     if system == DEFAULT:
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=add_generation_prompt)
+            messages, tokenize=False,
+            add_generation_prompt=add_generation_prompt) + tail
 
     if system is not None:
         return tokenizer.apply_chat_template(
             [{"role": "system", "content": system}] + messages,
-            tokenize=False, add_generation_prompt=add_generation_prompt)
+            tokenize=False, add_generation_prompt=add_generation_prompt) + tail
 
     probed = tokenizer.apply_chat_template(
         [{"role": "system", "content": _PROBE}] + messages,
@@ -116,8 +130,9 @@ def render_chat(tokenizer, messages: list[dict], system: str | None = None,
             "falling back to the template default, which may inject its own "
             "system prompt. Run `python -m src.common.chat --model <name>` to see it.")
         return tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=add_generation_prompt)
-    return out
+            messages, tokenize=False,
+            add_generation_prompt=add_generation_prompt) + tail
+    return out + tail
 
 
 def template_default_system(tokenizer) -> str | None:

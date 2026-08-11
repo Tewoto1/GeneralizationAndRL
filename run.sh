@@ -5,7 +5,11 @@
 #   ./run.sh test                    unit + smoke, no GPU, seconds
 #   ./run.sh stub    r0              whole slice on the canned model, no GPU
 #   ./run.sh pilot   r0              REAL model, 2 prompts, ~3 min — run before renting a night
-#   ./run.sh pairs   r0              generate answer pairs      (needs a model)
+#   ./run.sh constitute r0           model writes its own criteria from your labels
+#   ./run.sh sample  r0              drafts + prefills + self-review revisions
+#   ./run.sh pair    r0              pick which pairs to judge      (no GPU)
+#   ./run.sh spread  r0              per-variant signal report      (no GPU)
+#   ./run.sh pool    r1              constitute -> sample -> pair -> judge -> spread
 #   ./run.sh judge   r0              judge them                 (needs a model)
 #   ./run.sh validate r0             audit the judge — THE GATE
 #   ./run.sh peek    r0              read a run, safe mid-experiment
@@ -38,15 +42,16 @@ case "$CMD" in
 
   stub)
     need_run
-    $PY -m src.cli pairs --run "$RUN" --stub --fresh
-    $PY -m src.cli judge --run "$RUN" --stub --fresh
+    $PY -m src.cli sample --run "$RUN" --stub --fresh --limit 4
+    $PY -m src.cli pair   --run "$RUN"
+    $PY -m src.cli judge  --run "$RUN" --stub --fresh
     # validate is expected to FAIL here: the stub judge has planted position
     # bias. `|| true` keeps the demo going so you can read the report.
     $PY -m src.cli validate --run "$RUN" || true
     $PY -m src.cli peek --run "$RUN"
     ;;
 
-  pilot|label|pairs|judge|validate|peek)
+  pilot|label|judge|validate|peek|constitute|sample|pair|spread)
     need_run
     $PY -m src.cli "$CMD" --run "$RUN" "$@"
     ;;
@@ -54,6 +59,30 @@ case "$CMD" in
   push)   need_run; $PY -m src.cli sync push-run --run "$RUN" "$@" ;;
   pull)   need_run; $PY -m src.cli sync pull-run --run "$RUN" "$@" ;;
   whoami) $PY -m src.cli sync whoami --run _ ;;
+
+  pool)
+    # The full variant experiment. constitute -> sample -> pair -> judge -> spread.
+    # `pair` and `spread` need no GPU; they are in the chain so one command
+    # produces a readable answer rather than four files to join by hand.
+    need_run
+    # Only flags EVERY stage understands may be forwarded. `-n` means something
+    # to constitute and nothing to sample; `--limit` is the reverse. Forwarding
+    # blindly would fail three stages in, after the expensive one had run.
+    for arg in "$@"; do
+      case "$arg" in
+        --stub|--push|--fresh) ;;
+        *) echo "./run.sh pool forwards only --stub --push --fresh (got '$arg')."
+           echo "For -n / --limit / --domain, run the stages individually."
+           exit 2 ;;
+      esac
+    done
+    export PYTHONUNBUFFERED=1
+    $PY -m src.cli constitute --run "$RUN" "$@"
+    $PY -m src.cli sample     --run "$RUN" "$@"
+    $PY -m src.cli pair       --run "$RUN"
+    $PY -m src.cli judge      --run "$RUN" "$@"
+    $PY -m src.cli spread     --run "$RUN"
+    ;;
 
   night)
     need_run
@@ -70,23 +99,36 @@ case "$CMD" in
     # after both have completed AND pushed. `validate` is wrapped in `|| true`
     # because a judge failing its gates is a RESULT, not a crash -- it must not
     # keep the box alive at $/hr, and it must not prevent the log being saved.
+    # Destroy must NEVER block on a prompt: this runs detached, with no one at
+    # the keyboard, so a confirmation question means the box just stays alive
+    # and bills. `vastai destroy` asks "[y/N]" by default, so `y` is piped in.
+    # The curl path is the fallback and is prompt-free by construction; it needs
+    # VAST_API_KEY (put it in the same .env as HF_TOKEN).
     KILLCMD=""
     if [ "$KILL" = 1 ]; then
       KILLCMD="
       cp '$RUN.log' 'runs/$RUN/console.log' 2>/dev/null || true
       $PY -m src.cli sync push-run --run '$RUN' --message '$RUN: console log' || true
-      if command -v vastai >/dev/null && [ -n \"\${CONTAINER_ID:-}\" ]; then
-        echo \"destroying instance \$CONTAINER_ID\"
-        vastai destroy instance \$CONTAINER_ID
+      ID=\"\${CONTAINER_ID:-}\"
+      if [ -z \"\$ID\" ]; then
+        echo 'NOT DESTROYED: CONTAINER_ID unset (not a vast box?). Destroy it yourself.'
+      elif [ -n \"\${VAST_API_KEY:-}\" ]; then
+        echo \"destroying instance \$ID via API\"
+        curl -s -X DELETE \"https://console.vast.ai/api/v0/instances/\$ID/?api_key=\$VAST_API_KEY\"
+      elif command -v vastai >/dev/null; then
+        echo \"destroying instance \$ID via CLI\"
+        printf 'y\\n' | vastai destroy instance \"\$ID\"
       else
-        echo 'CANNOT AUTO-DESTROY: vastai CLI missing or CONTAINER_ID unset.'
-        echo 'Install with: pip install vastai && vastai set api-key <key>'
+        echo 'NOT DESTROYED: no VAST_API_KEY and no vastai CLI. Destroy it yourself.'
       fi"
     fi
 
     nohup bash -c "\
-      $PY -m src.cli pairs    --run '$RUN' --push && \
-      $PY -m src.cli judge    --run '$RUN' --push && \
+      $PY -m src.cli constitute --run '$RUN' --push && \
+      $PY -m src.cli sample     --run '$RUN' --push && \
+      $PY -m src.cli pair       --run '$RUN' && \
+      $PY -m src.cli judge      --run '$RUN' --push && \
+      $PY -m src.cli spread     --run '$RUN' && \
       { $PY -m src.cli validate --run '$RUN' --push || true; } \
       $KILLCMD" > "$RUN.log" 2>&1 &
     echo "started pid $! -> $RUN.log"
@@ -98,8 +140,9 @@ case "$CMD" in
 
   all)
     need_run
-    $PY -m src.cli pairs    --run "$RUN" "$@"
-    $PY -m src.cli judge    --run "$RUN" "$@"
+    $PY -m src.cli sample --run "$RUN" "$@"
+    $PY -m src.cli pair   --run "$RUN"
+    $PY -m src.cli judge  --run "$RUN" "$@"
     # Deliberately not `|| true`: a judge that fails validation must stop the
     # pipeline. Everything downstream is a function of the judge, so producing
     # data from a failed instrument is worse than producing none.

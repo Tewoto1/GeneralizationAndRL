@@ -88,6 +88,34 @@ the first time it appears.
 
 Ask a clarifying question only when the answer genuinely changes the work.
 
+## Working on files a human is holding
+
+`docs/human_label/labels.json` is written by a person, live, in another
+terminal. Never read-modify-write it, and never write it at all while a
+labelling session could be open. Nine labels were destroyed that way: the
+snapshot was taken before they landed and the write-back erased them.
+
+The rule generalises to any file the person may be editing right now: re-read
+immediately before writing, and prefer appending to a `.jsonl` over rewriting
+a `.json`. `judge.validate.add_label` appends for this reason.
+
+Claude's own analysis output goes in its own file, never merged into a
+human-authored one without being asked.
+
+## Judge findings so far (r0, Qwen2.5-7B, 25 prompts)
+
+- Two independent samples of the same model at temperature 0.7 are not a
+  preference pair: 41 / 42 / 67-tie across 150 judgments, 47 of 50 answers
+  markdown listicles, median within-pair length difference 13%. Under GRPO
+  that group has no reward variance and therefore no gradient.
+- Judge agreed with Yuzheng on 5 of 8 pairs both decided. Its one CLEAR pair
+  was one he judged the other way, so `clear_agreement` was 0/1.
+- `length_bias` measured 0.056, so the failure is not a preference for longer
+  answers. It is coverage over commitment, caused by protocol v1 asking only
+  for evidence FOR a criterion. Fixed in protocol v2.
+- His tags across 13 labels: tact 7, actionable 4, truth 2, completeness 2,
+  time 0. Shortness is tagged `tact`. `time` and `tact` are one axis for him.
+
 ## Failure log — mistakes made in the predecessor repo, do not repeat
 
 - A rigid tool-call parser required one literal fence label; the model had just

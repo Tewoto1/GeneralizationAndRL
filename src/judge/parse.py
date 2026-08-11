@@ -24,13 +24,26 @@ _BARE = re.compile(r"\{[^{}]*\"winner\"[^{}]*\}", re.DOTALL)
 
 # Step headings the protocol asks for. Presence is a cheap process check: a
 # verdict reached without step 4 is not the thing being measured.
+# Keyed by NAME, not by position. The protocol gained a step and everything
+# that asked "did it do step 4" would have started reading the criteria step
+# instead. Names survive reordering; numbers do not.
 _STEPS = {
-    1: re.compile(r"STEP\s*1\b|COMMITMENTS", re.IGNORECASE),
-    2: re.compile(r"STEP\s*2\b|CONSEQUENCES", re.IGNORECASE),
-    3: re.compile(r"STEP\s*3\b|CRITERIA", re.IGNORECASE),
-    4: re.compile(r"STEP\s*4\b|SELF.?CHECK", re.IGNORECASE),
-    5: re.compile(r"STEP\s*5\b|VERDICT", re.IGNORECASE),
+    "locate": re.compile(r"LOCATE THE ANSWER", re.IGNORECASE),
+    "commitments": re.compile(r"COMMITMENTS", re.IGNORECASE),
+    "consequences": re.compile(r"CONSEQUENCES", re.IGNORECASE),
+    "criteria": re.compile(r"\bCRITERIA\b", re.IGNORECASE),
+    "selfcheck": re.compile(r"SELF.?CHECK", re.IGNORECASE),
+    "verdict": re.compile(r"\bVERDICT\b", re.IGNORECASE),
 }
+
+
+def did_selfcheck(steps) -> bool:
+    """Whether a judgment performed the self-check step.
+
+    Accepts both the current name list and the integer list used before the
+    protocol was renumbered, so old runs stay readable.
+    """
+    return "selfcheck" in steps or 4 in steps
 
 
 @dataclass
@@ -81,7 +94,7 @@ def _norm_winner(v, label_a: str, label_b: str) -> str | None:
 
 def parse(text: str, label_a: str = "A", label_b: str = "B") -> Judgment:
     """Parse one judge completion. Always returns a Judgment; never raises."""
-    steps = [n for n, rx in _STEPS.items() if rx.search(text)]
+    steps = [name for name, rx in _STEPS.items() if rx.search(text)]
 
     for blob in _candidates(text):
         try:

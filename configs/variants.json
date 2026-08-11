@@ -1,0 +1,56 @@
+{
+  "_role": "How the answer pool is generated. A variant is one way of conditioning the model on the same request. src/sample.py interprets this file; nothing here is hardcoded in Python.",
+
+  "version": "v0",
+
+  "_why": [
+    "r0 sampled the same model twice at temperature 0.7 and got two drafts of the same essay: 47 of 50 answers were markdown listicles, median within-pair length difference 13%, and the judge split 41/42/67-tie across 150 judgments. That is a coin flip, and it means a preference-training stage would have near-zero advantage and near-zero gradient.",
+    "Temperature does not fix it. Temperature raises entropy over TOKENS, not over STRATEGIES; RLHF collapsed the output distribution onto one mode, so sampling hotter gives the same listicle with worse word choices. The styles are still in the weights, but reaching them requires CONDITIONING.",
+    "So: three families of conditioning, of increasing strength, plus a true control."
+  ],
+
+  "_control_note": "`draft` is the control and it is FREE: the self-review variants need a draft to revise, so the draft is generated anyway. Two drafts per prompt also give a within-control pair that reproduces r0's setup exactly, which is the baseline every other variant is measured against.",
+
+  "_prefill_note": "Prefill seeds the ASSISTANT turn and lets the model continue. It is weaker than an instruction but it is NOT neutral -- it still picks a mode, so every prefill answer is tagged `conditioning: prefill` and must never be read as an unconditioned sample. It is included because it changes register without ever naming a virtue the rubric scores.",
+
+  "n_drafts": 2,
+
+  "variants": [
+    {
+      "id": "draft",
+      "kind": "draft",
+      "conditioning": "none",
+      "_role": "THE control. No prefill, no instruction, no review. Identical to how r0 generated both of its answers."
+    },
+    {
+      "id": "pre_direct",
+      "kind": "prefill",
+      "conditioning": "prefill",
+      "prefill": "The short answer is",
+      "_why": "Commits the model to a verdict in its first clause, before it can build up to one. Targets the buries_verdict trap."
+    },
+    {
+      "id": "pre_ask",
+      "kind": "prefill",
+      "conditioning": "prefill",
+      "prefill": "Before I answer, one thing decides this:",
+      "_why": "Opens on the missing fact rather than on advice. The clarify_expected prompts should benefit and the rest should not -- if it wins everywhere, the judge is rewarding the shape rather than the fit."
+    }
+  ],
+
+  "self_review": {
+    "_role": "Draft -> review against a constitution -> revision. One variant instance per constitution, generated at runtime by src/sample.py, since the constitutions are themselves produced by a run.",
+    "id_prefix": "review",
+    "conditioning": "self_review",
+    "revise_from": "draft_0",
+    "_revise_from_note": "Always the SAME draft, so a revision differs from every other revision only by which constitution drove it. Revising a different draft each time would confound constitution effect with sampling noise."
+  },
+
+  "pairing": {
+    "_role": "Which pairs get judged. Judging is the cost bottleneck (~4 judgments per pair), so this is where the budget is actually spent.",
+    "strategy": "anchor_on_draft",
+    "_strategy_note": "Every pair is draft_0 vs something else, plus one draft_0 vs draft_1 baseline. Anchoring on a common reference means every variant is measured against the same control rather than against each other, so N variants cost N pairs instead of N-choose-2.",
+    "include_control_pair": true,
+    "_control_pair_note": "draft_0 vs draft_1 reproduces r0 exactly. If it comes out at margin ~0 again and the variant pairs do not, the conditioning worked and the difference is attributable to it."
+  }
+}

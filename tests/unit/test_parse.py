@@ -65,16 +65,28 @@ def test_unparseable_keeps_raw_and_never_raises():
 def test_steps_detected_even_when_verdict_unparseable():
     """Process compliance is measured independently of verdict extraction —
     otherwise a parse failure would silently zero the step statistics."""
-    j = parse("STEP 1 - COMMITMENTS ...\nSTEP 4 - SELF-CHECK ...\nno json here")
+    j = parse("STEP 2 - COMMITMENTS ...\nSTEP 5 - SELF-CHECK ...\nno json here")
     assert j.ok is False
-    assert 1 in j.steps_present and 4 in j.steps_present
+    assert "commitments" in j.steps_present and "selfcheck" in j.steps_present
+
+
+def test_steps_are_keyed_by_name_not_position():
+    """The protocol gained a LOCATE step and everything numbered shifted. Had
+    the keys stayed positional, the 'did it self-check' test would silently
+    have started reading the criteria step instead."""
+    from src.judge.parse import did_selfcheck
+    j = parse("STEP 1 - LOCATE THE ANSWER ...\nSTEP 5 - SELF-CHECK ...")
+    assert "locate" in j.steps_present
+    assert did_selfcheck(j.steps_present)
+    assert did_selfcheck([1, 2, 3, 4, 5]), "old integer records must still read"
+    assert not did_selfcheck(["locate", "commitments"])
 
 
 def test_missing_selfcheck_is_visible():
     """A verdict reached without step 4 must be detectable — the protocol's
     whole claim is stepwise self-verified reasoning."""
-    j = parse(f"STEP 1 - COMMITMENTS\nSTEP 5 - VERDICT\n```json\n{_TAIL}\n```")
-    assert j.ok and 4 not in j.steps_present
+    j = parse(f"STEP 2 - COMMITMENTS\nSTEP 6 - VERDICT\n```json\n{_TAIL}\n```")
+    assert j.ok and "selfcheck" not in j.steps_present
 
 
 def test_confidence_clamped_and_junk_tolerated():

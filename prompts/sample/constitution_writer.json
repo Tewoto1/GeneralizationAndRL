@@ -1,0 +1,49 @@
+{
+  "_role": "Asks the model to derive its own judging criteria from labelled examples. The output becomes a constitution that drives the self-review variants.",
+
+  "version": "v0",
+
+  "_design": [
+    "The examples are (request, answer A, answer B, which the human preferred, why). The model is NOT told the seed rubric -- if it were, it would paraphrase it back and the exercise would measure copying rather than generalising.",
+    "It is asked for the PRINCIPLE behind each preference before writing criteria, for the same reason the judge protocol asks for commitments before evaluating: a model that writes its conclusions first reverse-engineers support for them.",
+    "It is asked to name a tension it cannot resolve. A constitution whose criteria never conflict produces no boundary cases, and boundary cases are what the loop escalates. If the model reports no tension, that is a signal the criteria are too vague to disagree with each other.",
+    "SAMPLING, NOT SUBSETTING: every constitution in a run is generated from the IDENTICAL example set. Only the sampling seed differs. The question is how far the model diverges from a shared starting point, not how it converges from different evidence."
+  ],
+
+  "system": null,
+  "_system_note": "No system turn, same as everywhere else. A persona would shape what the model thinks good writing is, which is precisely the thing being elicited.",
+
+  "template": [
+    "Below are real examples where a person chose between two answers to the same request, and said why.",
+    "",
+    "{{examples}}",
+    "",
+    "Work out what this person actually values, then write it down as criteria that could be applied to answers they have not seen.",
+    "",
+    "STEP 1 - PRINCIPLE PER EXAMPLE. For each example, state in one sentence the general principle their choice implies. Not what they said about that answer, but the rule it would imply for a different request.",
+    "",
+    "STEP 2 - COLLAPSE. Several of those principles are the same principle wearing different clothes. Group them. Where two principles genuinely conflict, keep both and say so rather than averaging them into something neither of them says.",
+    "",
+    "STEP 3 - TENSION. Name at least one pair of your criteria that will pull against each other on some request, and describe the kind of request where that happens. If you cannot find one, your criteria are too vague to ever disagree, and you should go back and sharpen them.",
+    "",
+    "STEP 4 - CRITERIA. Write 3 to 6 criteria. Each is a short id (lowercase, one word) and a question that can be answered about any answer to any request. A criterion that could only apply to the examples above is not a criterion.",
+    "",
+    "Finish with exactly this block and nothing after it:",
+    "",
+    "```json",
+    "{\"criteria\": [{\"id\": \"<one word>\", \"question\": \"<question>\"}], \"tensions\": [\"<criterion_a> x <criterion_b>: <when it bites>\"]}",
+    "```"
+  ],
+
+  "example_block": [
+    "--- EXAMPLE {{n}} ---",
+    "REQUEST: {{prompt}}",
+    "",
+    "ANSWER A: {{answer_a}}",
+    "",
+    "ANSWER B: {{answer_b}}",
+    "",
+    "THEY PREFERRED: {{verdict}}",
+    "BECAUSE: {{reasoning}}"
+  ]
+}

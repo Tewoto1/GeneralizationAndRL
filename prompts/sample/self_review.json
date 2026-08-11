@@ -1,0 +1,40 @@
+{
+  "_role": "Draft -> review against a constitution -> revision. The revision goes into the answer pool; the review text is kept for reading.",
+
+  "version": "v0",
+
+  "_design": [
+    "One call, not two. The review and the revision are produced in a single generation so the revision is conditioned on the review the model just wrote, rather than on a review it has to re-read from context. This also halves the cost.",
+    "The review step is told what a lazy review looks like, for the same reason the judge protocol's step 4 is written adversarially: 'review your answer' on its own produces 'this answer is good, here it is again'.",
+    "The model must state a change it is NOT making. Without that, every review becomes a rewrite, and a rewrite of a good draft is usually worse -- there would be no way to tell revision-helps from revision-churns.",
+    "The revision is emitted between markers so it can be extracted without the review leaking into the answer pool. The judge must never see the review: it would be reading the model's own case for its answer, which is exactly the fluency-over-substance failure the rubric warns about."
+  ],
+
+  "system": null,
+
+  "template": [
+    "Here is a request, and an answer that was written for it.",
+    "",
+    "REQUEST:",
+    "{{prompt}}",
+    "",
+    "DRAFT ANSWER:",
+    "{{draft}}",
+    "",
+    "Review the draft against these criteria, then rewrite it.",
+    "",
+    "{{criteria}}",
+    "",
+    "STEP 1 - REVIEW. Take each criterion in turn. Quote the specific part of the draft that does badly on it, or say the draft is already fine on that criterion. Do not rewrite anything yet. A review that finds nothing wrong with every criterion is a review that was not performed.",
+    "",
+    "STEP 2 - WHAT NOT TO CHANGE. Name one thing the draft does well that you are going to keep exactly as it is. Rewriting everything is not revision.",
+    "",
+    "STEP 3 - REVISE. Write the improved answer in full, as a direct reply to the person who made the request. Do not mention the draft, the criteria, or the fact that this is a revision. It should read as if it were the first thing you wrote.",
+    "",
+    "Put the revised answer between these markers, exactly:",
+    "",
+    "<<<REVISED>>>",
+    "(the revised answer)",
+    "<<<END>>>"
+  ]
+}
