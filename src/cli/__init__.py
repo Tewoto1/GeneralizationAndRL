@@ -47,17 +47,25 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    def add(name, fn):
+    def add(name, fn, stage: bool = True):
+        """`stage=False` for read-only commands that take their run positionally.
+
+        The pipeline flags (--run/--fresh/--stub/--push) describe a stage that
+        writes. `view` writes nothing and reads two positional arguments, so
+        inheriting them would put a required `--run` in front of a command whose
+        whole point is `view r1 spread.json`.
+        """
         s = sub.add_parser(name, help=(fn.__doc__ or "").strip().split("\n")[0])
-        s.add_argument("--run", required=True)
-        s.add_argument("--fresh", action="store_true",
-                       help="discard this stage's output and redo it")
-        s.add_argument("--stub", action="store_true",
-                       help="canned generator, no model")
-        # Push on the success path only. A run that died mid-stage must not
-        # appear on the Hub looking complete.
-        s.add_argument("--push", action="store_true",
-                       help="mirror the run directory to the Hub on success")
+        if stage:
+            s.add_argument("--run", required=True)
+            s.add_argument("--fresh", action="store_true",
+                           help="discard this stage's output and redo it")
+            s.add_argument("--stub", action="store_true",
+                           help="canned generator, no model")
+            # Push on the success path only. A run that died mid-stage must not
+            # appear on the Hub looking complete.
+            s.add_argument("--push", action="store_true",
+                           help="mirror the run directory to the Hub on success")
         s.set_defaults(fn=fn)
         return s
 

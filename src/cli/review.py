@@ -1,15 +1,18 @@
 """
-Human-facing and operational stages: `label`, `peek`, `sync`.
+Human-facing and operational stages: `label`, `view`, `peek`, `sync`.
 
 Nothing here touches a GPU. `label` is the only place a human's judgment enters
-the system, and `peek` is the only thing safe to run against a live run.
+the system; `view` and `peek` are the only things safe to run against a live
+run, because neither opens a file for writing.
 """
 from __future__ import annotations
 
 import json
+import shutil
 import sys
+import textwrap
 
-from ..common.io import Run, box, c
+from ..common.io import Run, _strip, box, c
 from ..judge import validate as V
 from .base import load_all
 
@@ -103,6 +106,205 @@ def cmd_label(a) -> None:
     print("[label] re-run `validate` to score the judge against them.")
 
 
+# ------------------------------------------------------------------- viewing --
+# A run directory is JSON that a person has to read, and `python -m json.tool`
+# on a 2.5 MB judgments.jsonl is not reading. Three things make it readable:
+# `_`-prefixed design keys are dimmed rather than hidden (they are the design
+# document, per CLAUDE.md, but they are not what you came for); multi-KB text
+# fields are folded to a few lines unless asked for; and a .jsonl is a table
+# first and records second. Read-only by construction — nothing here opens a
+# file for writing, so it is safe against a run a GPU is still appending to.
+
+_LONG = 100          # a string this long, or containing a newline, is "text"
+_FOLD = 6            # wrapped lines of a text field shown without --full
+
+
+def _term() -> int:
+    return max(60, min(shutil.get_terminal_size((100, 24)).columns, 120))
+
+
+def _scalar(v) -> str:
+    if v is None:
+        return c("null", "grey")
+    if isinstance(v, bool):
+        return c(str(v), "green" if v else "red")
+    if isinstance(v, (int, float)):
+        return c(f"{v:.4g}" if isinstance(v, float) else str(v), "yellow")
+    return str(v)
+
+
+def _is_text(v) -> bool:
+    return isinstance(v, str) and (len(v) > _LONG or "\n" in v)
+
+
+def _text_block(v: str, pad: str, width: int, full: bool) -> list[str]:
+    """Fold a long string. Real newlines are kept; each line is wrapped."""
+    lines: list[str] = []
+    for para in v.split("\n"):
+        lines += textwrap.wrap(para, width - len(pad)) or [""]
+    hidden = 0
+    if not full and len(lines) > _FOLD:
+        hidden, lines = len(lines) - _FOLD, lines[:_FOLD]
+    out = [pad + c(ln, "grey") for ln in lines]
+    if hidden:
+        out.append(pad + c(f"… +{hidden} lines  (--full)", "blue"))
+    return out
+
+
+def _render(obj, full: bool, width: int, depth: int = 0) -> list[str]:
+    """Pretty-print one JSON value. Keys aligned per level; `_` keys dimmed."""
+    pad = "  " * depth
+    if isinstance(obj, dict):
+        if not obj:
+            return [pad + c("{}", "grey")]
+        klen = max(len(k) for k in obj)
+        out = []
+        for k, v in obj.items():
+            key = c(f"{k}:", "grey") if k.startswith("_") else c(f"{k}:", "cyan")
+            gap = " " * (klen - len(k) + 1)
+            if _is_text(v):
+                out.append(pad + key)
+                out += _text_block(v, pad + "  ", width, full)
+            elif isinstance(v, (dict, list)) and v:
+                out.append(pad + key)
+                out += _render(v, full, width, depth + 1)
+            else:
+                out.append(pad + key + gap + _scalar(v)
+                           if not isinstance(v, (dict, list))
+                           else pad + key + gap + c("[]" if isinstance(v, list) else "{}", "grey"))
+        return out
+    if isinstance(obj, list):
+        # A list of scalars is one line; a list of objects gets one block each.
+        if all(not isinstance(x, (dict, list)) and not _is_text(x) for x in obj):
+            joined = ", ".join(_scalar(x) for x in obj)
+            if len(joined) < width - len(pad):
+                return [pad + joined]
+        out = []
+        for i, x in enumerate(obj):
+            out.append(pad + c(f"- [{i}]", "grey"))
+            out += (_text_block(x, pad + "  ", width, full) if _is_text(x)
+                    else _render(x, full, width, depth + 1))
+        return out
+    return [pad + _scalar(obj)]
+
+
+def _table(records: list[dict], width: int, keys: list[str] | None) -> None:
+    """One line per record. Columns are the short scalar fields they share."""
+    if keys is None:
+        counts: dict[str, int] = {}
+        for r in records:
+            for k, v in r.items():
+                if not _is_text(v) and not isinstance(v, (dict, list)):
+                    counts[k] = counts.get(k, 0) + 1
+        # A field only some records carry is not a column; it hides in a table.
+        keys = [k for k, n in counts.items() if n >= len(records) * 0.8]
+    if not keys:
+        return
+    def plain(v) -> str:
+        return "" if v is None and False else _strip(_scalar(v))
+
+    w = {k: min(28, max(len(k), max((len(plain(r.get(k))) for r in records),
+                                    default=0))) for k in keys}
+    # Drop columns from the right until the row fits, rather than letting the
+    # terminal wrap every line and destroy the alignment the table exists for.
+    while len(keys) > 1 and sum(w[k] + 2 for k in keys) > width:
+        keys.pop()
+    print(c("  ".join(f"{k[:w[k]]:<{w[k]}}" for k in keys), "bold"))
+    print(c("─" * min(sum(w[k] + 2 for k in keys), width), "grey"))
+    for r in records:
+        cells = []
+        for k in keys:
+            s = plain(r.get(k))
+            cut = (s[: w[k] - 1] + "…") if len(s) > w[k] else s
+            body = cut if len(cut) != len(s) else _scalar(r.get(k))
+            cells.append(body + " " * (w[k] - len(_strip(body))))
+        print("  ".join(cells).rstrip())
+    print(c(f"\n{len(records)} records", "grey"))
+
+
+def _match(rec: dict, wheres: list[str]) -> bool:
+    """`key=value` / `key!=value`, compared as lowercase strings."""
+    for expr in wheres:
+        neg = "!=" in expr
+        k, _, v = expr.partition("!=" if neg else "=")
+        got = str(rec.get(k.strip())).lower()
+        hit = got == v.strip().lower()
+        if hit == neg:
+            return False
+    return True
+
+
+def cmd_view(a) -> None:
+    """Read any file in a run directory, formatted for a human. Read-only."""
+    run = Run.open(a.run)
+    if not run.dir.exists():
+        sys.exit(f"[view] no run directory {run.dir}")
+    width = _term()
+
+    if not a.file:                                   # `view r1` — what is here
+        rows = []
+        for p in sorted(run.dir.iterdir()):
+            if p.is_dir():
+                rows.append((c(p.name + "/", "blue"), f"{len(list(p.iterdir()))} files"))
+            else:
+                n = sum(1 for _ in run.read(p.stem)) if p.suffix == ".jsonl" else None
+                rows.append((p.name, f"{n} records" if n is not None
+                             else f"{p.stat().st_size / 1024:.0f} KB"))
+        box(f"run {run.dir.name}", rows)
+        print(c(f"view {a.run} <file>   [--id X] [-w key=val] [-n N] [--full]", "grey"))
+        return
+
+    path = run.dir / a.file
+    if not path.exists():                            # forgive the extension
+        cand = [p for p in run.dir.iterdir() if p.stem == a.file or p.name.startswith(a.file)]
+        if len(cand) != 1:
+            sys.exit(f"[view] no {a.file} in {run.dir}"
+                     + (f"; did you mean {[p.name for p in cand]}?" if cand else ""))
+        path = cand[0]
+
+    if a.raw:
+        print(path.read_text())
+        return
+    if path.suffix not in (".json", ".jsonl", ".complete"):
+        # console.log and friends: tail, because the end is the interesting part.
+        lines = path.read_text().splitlines()
+        keep = lines if a.n <= 0 else lines[-a.n:]
+        print(c(f"── {path.name}  (last {len(keep)} of {len(lines)} lines)", "grey"))
+        print("\n".join(keep))
+        return
+
+    if path.suffix != ".jsonl":                      # a single JSON object
+        print(c(f"── {path.name}", "cyan", "bold"))
+        print("\n".join(_render(json.loads(path.read_text()), a.full, width)))
+        return
+
+    records = [r for r in run.read(path.stem)]
+    key = "pair_id" if records and "pair_id" in records[0] else "prompt_id"
+    if a.id:
+        records = [r for r in records if a.id in str(r.get(key, ""))]
+    if a.where:
+        records = [r for r in records if _match(r, a.where)]
+    if not records:
+        sys.exit(f"[view] no records in {path.name} matched")
+
+    keys = [k.strip() for k in a.keys.split(",")] if a.keys else None
+    # A table is the right default for many records and the wrong one for a few:
+    # if you have already narrowed to a handful, you want to read them.
+    if not a.expand and (len(records) > a.n or a.table):
+        print(c(f"── {path.name}", "cyan", "bold"))
+        _table(records, width, keys)
+        print(c(f"(showing as table; add --expand, or --id / -w to narrow)", "grey"))
+        return
+    for r in records[: a.n if a.n > 0 else None]:
+        title = str(r.get(key, path.stem))
+        if "order_first" in r:                       # judgments: 4 per pair_id
+            title += f"   order_first={r['order_first']} sample={r.get('sample')}"
+        shown = {k: r[k] for k in keys if k in r} if keys else r
+        print(c("─" * width, "grey"))
+        print(c(title, "bold"))
+        print("\n".join(_render(shown, a.full, width)))
+
+
 def cmd_peek(a) -> None:
     """Read a run without disturbing it. Safe mid-experiment."""
     run = Run.open(a.run)
@@ -169,6 +371,24 @@ def register(add) -> None:
                    help="only pairs the judge called boundary")
     s.add_argument("--show-judge", action="store_true",
                    help="reveal the judge's verdict (anchors you — off by default)")
+
+    s = add("view", cmd_view, stage=False)
+    s.add_argument("run", help="run name, e.g. r1")
+    s.add_argument("file", nargs="?",
+                   help="file in the run dir; omit to list what is there. "
+                        "The extension is optional (`results` finds results.jsonl).")
+    s.add_argument("--id", help="jsonl: substring match on pair_id / prompt_id")
+    s.add_argument("-w", "--where", action="append", default=[], metavar="K=V",
+                   help="jsonl: filter, e.g. -w clear=false -w winner!=TIE. Repeatable.")
+    s.add_argument("-k", "--keys", metavar="A,B,C", help="show only these fields")
+    s.add_argument("-n", type=int, default=8, metavar="N",
+                   help="max records to expand / log lines to tail (0 = all)")
+    s.add_argument("--full", action="store_true",
+                   help="print long text fields entire instead of folding them")
+    s.add_argument("--expand", action="store_true",
+                   help="expand records even when there are many")
+    s.add_argument("--table", action="store_true", help="force the table")
+    s.add_argument("--raw", action="store_true", help="the bytes, unformatted")
 
     add("peek", cmd_peek).add_argument("-v", "--verbose", action="store_true")
 
